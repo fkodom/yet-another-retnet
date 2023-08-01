@@ -9,7 +9,12 @@ authors = [
 description = "yet-another-retnet"
 license = {text = "MIT"}
 dynamic = ["version", "readme"]  # NOTE: Must be in sync with [tool.setuptools.dynamic] below
-dependencies = []
+dependencies = [
+    # TODO: Check version ranges and pin dependencies
+    "einops",
+    "torch>=1.8",
+    "fairscale",
+]
 requires-python = ">=3.8"
 classifiers = ["Programming Language :: Python :: 3"]
 
