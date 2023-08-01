@@ -1,13 +1,13 @@
-# {{REPO_NAME}}
+# yet-another-retnet
 
 
 ## Install
 
 ```bash
-pip install "{{REPO_NAME}} @ git+ssh://git@github.com/{{REPO_OWNER}}/{{REPO_NAME}}.git"
+pip install "yet-another-retnet @ git+ssh://git@github.com/fkodom/yet-another-retnet.git"
 
 # Install all dev dependencies (tests etc.)
-pip install "{{REPO_NAME}}[test] @ git+ssh://git@github.com/{{REPO_OWNER}}/{{REPO_NAME}}.git"
+pip install "yet-another-retnet[test] @ git+ssh://git@github.com/fkodom/yet-another-retnet.git"
 
 # Setup pre-commit hooks
 pre-commit install

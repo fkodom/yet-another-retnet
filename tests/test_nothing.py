@@ -1,5 +1,5 @@
-import {{REPO_NAME_SNAKECASE}}
+import yet_another_retnet
 
 
 def test_nothing():
-    print({{REPO_NAME_SNAKECASE}})
+    print(yet_another_retnet)

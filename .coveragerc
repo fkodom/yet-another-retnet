@@ -1,5 +1,5 @@
 [run]
-source = {{REPO_NAME_SNAKECASE}}
+source = yet_another_retnet
 
 [report]
 exclude_lines =

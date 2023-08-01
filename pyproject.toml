@@ -2,11 +2,11 @@
 requires = ["setuptools", "setuptools-scm"]
 
 [project]
-name = "{{REPO_NAME}}"
+name = "yet-another-retnet"
 authors = [
-    {name = "{{GIT_USER_NAME}}", email = "{{GIT_USER_EMAIL}}"},
+    {name = "Frank Odom", email = "fodom@plainsight.ai"},
 ]
-description = "{{REPO_NAME}}"
+description = "yet-another-retnet"
 license = {text = "MIT"}
 dynamic = ["version", "readme"]  # NOTE: Must be in sync with [tool.setuptools.dynamic] below
 dependencies = []
@@ -15,7 +15,7 @@ classifiers = ["Programming Language :: Python :: 3"]
 
 [tool.setuptools.dynamic]
 # NOTE: Must be in sync with 'project.dynamic' above
-version = {attr = "{{REPO_NAME_SNAKECASE}}.VERSION"}
+version = {attr = "yet_another_retnet.VERSION"}
 readme = {file = ["README.md"], content-type = "text/markdown"}
 
 [tool.setuptools.packages.find]
@@ -39,7 +39,7 @@ test = [
 line-length = 88
 
 [tool.mypy]
-files = "{{REPO_NAME_SNAKECASE}}/"
+files = "yet_another_retnet/"
 check_untyped_defs = "true"
 ignore_missing_imports = "true"
 
