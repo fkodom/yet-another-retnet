@@ -5,7 +5,7 @@ import torch
 from torch import Tensor
 
 from yet_another_retnet.retention import (
-    MultiheadRetention,
+    MultiScaleRetention,
     retention_parallel,
     retention_recurrent,
 )
@@ -51,12 +51,12 @@ def test_parallel_equals_recursive(
     torch.testing.assert_close(y_parallel, y_recurrent)
 
 
-def test_multihead_retention_forward_parallel():
+def test_multiscale_retention_forward_parallel():
     # TODO
     pass
 
 
-def test_multihead_retention_forward_recursive():
+def test_multiscale_retention_forward_recursive():
     # TODO
     pass
 
@@ -66,7 +66,7 @@ def test_multihead_retention_forward_recursive():
 @pytest.mark.parametrize("num_heads", [1, 2])
 @pytest.mark.parametrize("seq_length", [8])
 @pytest.mark.parametrize("embed_dim", [16, 32])
-def test_multihead_parallel_equals_recursive(
+def test_multiscale_parallel_equals_recursive(
     batch_size: int,
     num_heads: int,
     seq_length: int,
@@ -76,7 +76,7 @@ def test_multihead_parallel_equals_recursive(
     query = torch.randn(*size, device=DEVICE, dtype=DTYPE)
     key = torch.randn(*size, device=DEVICE, dtype=DTYPE)
     value = torch.randn(*size, device=DEVICE, dtype=DTYPE)
-    mhr = MultiheadRetention(embed_dim, num_heads, device=DEVICE, dtype=DTYPE).eval()
+    mhr = MultiScaleRetention(embed_dim, num_heads, device=DEVICE, dtype=DTYPE).eval()
 
     y_parallel, _ = mhr.forward_parallel(query, key, value)
 

@@ -8,10 +8,11 @@
 ### TODO
 
 - [x] Equivalent **parallel** and **recursive** retention methods.  See: [retention.py](yet_another_retnet/retention.py)
-- [x] `MultiheadRetention` module.  See: [retention.py](yet_another_retnet/retention.py)
-- [ ] Recurrent position embedding implementation.
-- [ ] `MultiscaleRetention` module. (Same as `MultiheadRetention`, but with positional embeddings explicitly part of the retention layer.)
-    - I don't understand why the authors did this.  It seems over-fitted to their language modeling use case.  Why not apply positional embeddings to the input, then just use `MultiheadRetention`?
+- [x] Recurrent position embedding implementation.
+- [x] `MultiScaleRetention` module.  See: [retention.py](yet_another_retnet/retention.py)
+- [x] Make relative position embeddings for `MultiScaleRetention` **optional**.
+    - The retention layer explicitly includes a position embedding update, which is based on [xPos](https://arxiv.org/pdf/2212.10554.pdf).  It does not necessarily translate well to other domains (e.g. computer vision, heterogeneous graphs).  So I have made it optional.
+    - I'm not 100% sure why the authors did this.  It seems overly specific to the language modeling use case, and it's not clear to me that it was necessary.
 - [ ] Equivalent **chunkwise** retention method.
 - [ ] End-to-end `RetNet` module.
 - [ ] Reproduce inference memory, throughput, and latency benchmarks.
@@ -35,16 +36,16 @@ pre-commit install
 ## Usage
 
 
-### MultiheadRetention
+### MultiScaleRetention
 
 Showing equivalent parallel and recurrent usage:
 
 ```python
 import torch
 
-from yet_another_retnet.retention import MultiheadRetention
+from yet_another_retnet.retention import MultiScaleRetention
 
-mhr = MultiheadRetention(embed_dim=32, num_heads=4, device="cuda")
+mhr = MultiScaleRetention(embed_dim=32, num_heads=4, device="cuda")
 
 # input shape: (batch_size, seq_len, embed_dim)
 q = k = v = torch.randn(1, 16, 32, device="cuda")
@@ -55,8 +56,10 @@ y_parallel, _ = mhr.forward_parallel(q, k, v)
 # Recursive retention
 outputs = []
 prev_state = None
-for i in range(32):
-    out, prev_state = mhr.forward_recurrent(q[:, i], k[:, i], v[:, i], prev_state)
+for idx in range(32):
+    out, prev_state = mhr.forward_recurrent(
+        q[:, idx], k[:, idx], v[:, idx], idx, prev_state
+    )
     outputs.append(out)
 y_recursive = torch.stack(outputs, dim=1)
 
@@ -64,10 +67,26 @@ y_recursive = torch.stack(outputs, dim=1)
 torch.testing.assert_close(y_parallel, y_recursive)
 ```
 
+**NOTE**: The `MultiScaleRetention` that is described in the paper includes an
+explicit position embedding (based on xPos) as part of the retention layer.  This
+does not translate perfectly to other domains (e.g. computer vision, heterogeneous
+graphs), so I have made it optional.
+
+Set `relative_position=False` to disable the position embedding.  Instead, you will
+be responsible for adding positional information to the inputs (if needed).
+
+```python
+# Disable relative position embedding
+mhr = MultiScaleRetention(
+    embed_dim=32, num_heads=4, relative_position=False, device="cuda"
+)
+# Everything else works the same as above.
+# Just add your own positional embeddings to the inputs.
+```
 
 ### Retention forward pass
 
-Similar to the example above, but head projections are not internalized by `MultiheadRetention`:
+Similar to the example above, but head projections and positional updates are not internalized by `MultiScaleRetention`:
 
 ```python
 import torch
