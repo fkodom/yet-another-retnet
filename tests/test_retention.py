@@ -84,6 +84,8 @@ def test_multihead_parallel_equals_recursive(
     prev_state: Optional[Tensor] = None
     for i in range(seq_length):
         q, k, v = query[:, i], key[:, i], value[:, i]
-        y_recurrent[:, i], prev_state = mhr.forward_recurrent(q, k, v, prev_state)
+        y_recurrent[:, i], prev_state = mhr.forward_recurrent(
+            q, k, v, seq_idx=i, prev_state=prev_state
+        )
 
     torch.testing.assert_close(y_parallel, y_recurrent)

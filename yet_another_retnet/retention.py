@@ -3,7 +3,7 @@ from typing import Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
-from einops import einsum, rearrange
+from einops import einsum, rearrange, repeat
 from torch import Tensor, nn
 
 DEFAULT_DEVICE = torch.device("cpu")
@@ -11,8 +11,8 @@ DEFAULT_DEVICE = torch.device("cpu")
 
 def _build_decay_gammas(
     num_heads: int,
-    device: torch.device = DEFAULT_DEVICE,
-    dtype: torch.dtype = torch.float32,
+    device: Optional[Union[torch.device, str]] = None,
+    dtype: Optional[torch.dtype] = None,
 ) -> Tensor:
     """Decay values are different for each retention head, following the prescribed
     method in the paper.  Conceptually, I think of each head having a different
@@ -31,8 +31,8 @@ def _build_decay_mask(
     query_length: int,
     key_length: int,
     decay_gammas: Tensor,
-    device: torch.device = DEFAULT_DEVICE,
-    dtype: torch.dtype = torch.float32,
+    device: Optional[Union[torch.device, str]] = None,
+    dtype: Optional[torch.dtype] = None,
 ) -> Tensor:
     """The decay mask is one of the key components that makes *parallel* retention
     equivalent to *recursive* retention.  The decay coefficients are pre-computed
@@ -56,10 +56,56 @@ def _build_decay_mask(
     return decay_gammas**distance
 
 
+def _build_position_thetas(
+    head_dim: int,
+    scale: float = 10000,
+    device: Optional[Union[torch.device, str]] = None,
+    dtype: Optional[torch.dtype] = None,
+) -> Tensor:
+    """Positional thetas are different for each value along head_dim, following the
+    prescribed method in the paper.  These are used to update the positional
+    embeddings in both the parallel and recursive formulations of retention.
+    See: https://arxiv.org/pdf/2307.08621v3.pdf, Section 2.1 (Retention)
+
+    NOTE: The actual values for thetas are not specified in the paper, so I
+    copied these values from the official implementation.
+    See: https://github.com/microsoft/torchscale/blob/7d231743f4f96c460b7cf0aa0cf242bb192b34f8/torchscale/architecture/retnet.py#L27C1-L28C59
+    """
+    x = torch.linspace(0, 1, steps=head_dim // 2, device=device, dtype=dtype)
+    thetas = 1 / (scale**x)
+    return repeat(thetas, "d -> (d n)", n=2)
+
+
+# NOTE: For the purposes of positional embeddings, we view query/key Tensors as
+# complex-valued, where the even-numbered indices are the real part, and the
+# odd-numbered indices are the imaginary part.  This makes it easy to compute
+# the complex conjugate without *actually* using complex dtypes in PyTorch.
+# (Complex dtypes have limited support compared to real dtypes.)
+#
+# I don't re-explain this in the functions below, but it's important to keep in
+# mind when reading the code.
+
+
+def _complex_conjugate(x: Tensor) -> Tensor:
+    """Complex conjugate of a complex-valued tensor."""
+    return torch.stack((x[..., ::2], -x[..., 1::2]), dim=-1).flatten(start_dim=-2)
+
+
+def _multiply_by_i(x: Tensor) -> Tensor:
+    """Multiply a complex-valued tensor by the imaginary unit 'i'."""
+    return torch.stack((-x[..., 1::2], x[..., ::2]), dim=-1).flatten(start_dim=-2)
+
+
+def _theta_shift(x: Tensor, sin: Tensor, cos: Tensor) -> Tensor:
+    # TODO: Add docstring
+    return (x * cos) + (_multiply_by_i(x) * sin)
+
+
 def retention_parallel(
     query: Tensor,
     key: Tensor,
     value: Tensor,
+    scale: Optional[float] = None,
     decay_gammas: Optional[Tensor] = None,
     need_weights: bool = False,
 ) -> Tuple[Tensor, Optional[Tensor]]:
@@ -82,6 +128,10 @@ def retention_parallel(
     # - h: num_heads
     # - n / s: seq_length
     # - d: hidden_dim
+    if scale is None:
+        scale = key.size(-1) ** 0.5
+    key = key / scale
+
     similarity = einsum(query, key, "b h n d, b h s d -> b h n s")
     similarity = similarity * rearrange(decay_mask, "h n s -> () h n s")
     retention = einsum(similarity, value, "b h n s, b h s d -> b h n d")
@@ -97,6 +147,7 @@ def retention_recurrent(
     key: Tensor,
     value: Tensor,
     prev_state: Optional[Tensor],
+    scale: Optional[float] = None,
     decay_gammas: Optional[Tensor] = None,
 ) -> Tuple[Tensor, Tensor]:
     if decay_gammas is None:
@@ -110,13 +161,14 @@ def retention_recurrent(
     # - b: batch_size
     # - h: num_heads
     # - d: hidden_dim
+    if scale is None:
+        scale = key.size(-1) ** 0.5
+    key = key / scale
+
     state = einsum(key, value, "b h d, b h m -> b h d m")
     if prev_state is not None:
         state = state + prev_state * rearrange(decay_gammas, "h -> () h () ()")
     retention = einsum(query, state, "b h d, b h d m -> b h m")
-
-    # if group_norm is not None:
-    #     retention = group_norm(retention)
 
     return retention, state
 
@@ -125,6 +177,15 @@ class MultiheadRetention(nn.Module):
     """Multi-head retention (MHR) layer.  Intended to be (mostly) a drop-in replacement
     for nn.MultiheadAttention, but with the option to use either the parallel or
     recursive formulation of retention. (Attention only has the parallel formulation.)
+
+    NOTE: This is slightly different from Multi-Scale Retention, which was presented
+    in the paper.  Multi-Scale Retention includes an explicit positional embedding,
+    which is based on xPos.  IMO, this is unnecessary and overly specific to language
+    modeling, since other domains (e.g. computer vision, heterogeneous graphs) will
+    have different positional semantics.  Instead, MultiheadRetention does not include
+    an explicit positional embedding, and instead relies on the query and key
+    embeddings to (optionally) encode positional information ahead of time.
+    See: https://github.com/microsoft/torchscale/issues/48
 
     Reference:
         "Retentive Network: A Successor to Transformer for Large Language Models"
@@ -136,6 +197,7 @@ class MultiheadRetention(nn.Module):
         embed_dim: int,
         num_heads: int,
         dropout: float = 0.0,
+        relative_position: bool = True,
         bias: bool = True,
         batch_first: bool = True,
         group_norm_eps: float = 1e-6,
@@ -154,6 +216,7 @@ class MultiheadRetention(nn.Module):
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.dropout = dropout
+        self.relative_position = relative_position
         self.bias = bias
         self.batch_first = batch_first
 
@@ -197,6 +260,13 @@ class MultiheadRetention(nn.Module):
         self.out_proj = nn.Linear(
             embed_dim, embed_dim, bias=bias, device=device, dtype=dtype
         )
+
+        # 'thetas' parameter for updating the relative position embeddings.
+        self.thetas: Optional[Tensor] = None
+        if relative_position:
+            self.thetas = _build_position_thetas(
+                head_dim=head_dim, device=device, dtype=dtype
+            )
 
         self._reset_parameters()
 
@@ -243,9 +313,20 @@ class MultiheadRetention(nn.Module):
         q = rearrange(q, "b n (h d) -> b h n d", h=self.num_heads)
         k = rearrange(k, "b n (h d) -> b h n d", h=self.num_heads)
         v = rearrange(v, "b n (h d) -> b h n d", h=self.num_heads)
-        # Apply retention, then fold 'h' retention heads back into 'd'.
-        retention, weights = retention_parallel(q, k, v, need_weights=need_weights)
 
+        if self.relative_position:
+            indices = torch.arange(q.size(2), device=q.device, dtype=q.dtype)
+            indices = rearrange(indices, "n -> () () n ()")
+            thetas = rearrange(self.thetas, "d -> () () () d")
+            angles = indices * thetas
+            sin = torch.sin(angles)
+            cos = torch.cos(angles)
+
+            q = _theta_shift(q, sin, cos)
+            k = _complex_conjugate(_theta_shift(k, sin, cos))
+
+        # Apply retention then group norm.
+        retention, weights = retention_parallel(q, k, v, need_weights=need_weights)
         # To apply group norm in an equivalent way to the recursive formulation,
         # we fold the sequence dimension into the batch dimension.  Otherwise,
         # normalization would be applied over the entire input sequence.
@@ -265,6 +346,7 @@ class MultiheadRetention(nn.Module):
         # where X is the input to the layer.  The authors only use Retention in a
         # Decoder-style module, the q/k/v inputs are the same (i.e. X = q = k = v).
         # So, I assume that 'query' can equivalently be used as the input.
+        # TODO: Also allow a 'gelu' activation option.
         gate = torch.nn.functional.silu(self.g_proj(query))
         retention = self.out_proj(retention * gate)
 
@@ -275,6 +357,7 @@ class MultiheadRetention(nn.Module):
         query: Tensor,
         key: Tensor,
         value: Tensor,
+        seq_idx: int,
         prev_state: Optional[Tensor],
     ) -> Tuple[Tensor, Optional[Tensor]]:
         # einstein notation:
@@ -291,6 +374,17 @@ class MultiheadRetention(nn.Module):
         q = rearrange(q, "b (h d) -> b h d", h=self.num_heads)
         k = rearrange(k, "b (h d) -> b h d", h=self.num_heads)
         v = rearrange(v, "b (h d) -> b h d", h=self.num_heads)
+
+        if self.relative_position:
+            assert self.thetas is not None
+            thetas = rearrange(self.thetas, "d -> () () d")
+            angles = seq_idx * thetas
+            sin = torch.sin(angles)
+            cos = torch.cos(angles)
+
+            q = _theta_shift(q, sin, cos)
+            k = _complex_conjugate(_theta_shift(k, sin, cos))
+
         # Apply retention then group norm.
         retention, state = retention_recurrent(q, k, v, prev_state=prev_state)
         retention = F.dropout(retention, p=self.dropout, training=self.training)
@@ -307,6 +401,7 @@ class MultiheadRetention(nn.Module):
         # where X is the input to the layer.  The authors only use Retention in a
         # Decoder-style module, the q/k/v inputs are the same (i.e. X = q = k = v).
         # So, I assume that 'query' can equivalently be used as the input.
+        # TODO: Also allow a 'gelu' activation option.
         gate = torch.nn.functional.silu(self.g_proj(query))
         retention = self.out_proj(retention * gate)
 
@@ -323,6 +418,212 @@ class MultiheadRetention(nn.Module):
         need_weights: bool = False,
     ) -> Tuple[Tensor, Optional[Tensor]]:
         return self.forward_parallel(query, key, value, need_weights=need_weights)
+
+
+# class MultiScaleRetention(nn.Module):
+#     """Multi-scale Retention (MSR) layer. As presented in the paper:
+#         "Retentive Network: A Successor to Transformer for Large Language Models"
+#         https://arxiv.org/pdf/2307.08621v3.pdf
+
+#     NOTE: I also provide the MultiheadRetention layer (above), which is a simplified
+#     version of MSR that does not include explicit positional embeddings.  Consider MSR
+#     a drop-in replacement for MultiheadAttention, only when xPos positional embeddings
+#     are appropriate (e.g. for language modeling tasks).  Otherwise, consider using
+#     MultiheadRetention.
+#     """
+
+#     def __init__(
+#         self,
+#         embed_dim: int,
+#         num_heads: int,
+#         dropout: float = 0.0,
+#         bias: bool = True,
+#         batch_first: bool = True,
+#         group_norm_eps: float = 1e-6,
+#         device: Optional[Union[torch.device, str]] = None,
+#         dtype: Optional[torch.dtype] = None,
+#         # TODO???
+#         # add_bias_kv=False,
+#         # add_zero_attn=False,
+#         # kdim=None,
+#         # vdim=None,
+#     ):
+#         if not batch_first:
+#             raise NotImplementedError("batch_first=False is not yet supported")
+
+#         super().__init__()
+#         self.embed_dim = embed_dim
+#         self.num_heads = num_heads
+#         self.dropout = dropout
+#         self.bias = bias
+#         self.batch_first = batch_first
+
+#         if embed_dim % self.num_heads != 0:
+#             raise ValueError(
+#                 f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})"
+#             )
+
+#         head_dim = embed_dim // num_heads
+#         if not head_dim % 8 == 0:
+#             raise ValueError(
+#                 f"head_dim (embed_dim / num_heads = {head_dim}) must be divisible by 8"
+#             )
+#         if not head_dim <= 128:
+#             raise ValueError(
+#                 f"head_dim (embed_dim / num_heads = {head_dim}) must be <= 128"
+#             )
+
+#         # The q/k/v projection layers are the same as in vanilla MHA.
+#         self.q_proj = nn.Linear(
+#             embed_dim, embed_dim, bias=bias, device=device, dtype=dtype
+#         )
+#         self.k_proj = nn.Linear(
+#             embed_dim, embed_dim, bias=bias, device=device, dtype=dtype
+#         )
+#         self.v_proj = nn.Linear(
+#             embed_dim, embed_dim, bias=bias, device=device, dtype=dtype
+#         )
+#         self.group_norm = nn.GroupNorm(
+#             num_groups=num_heads,
+#             num_channels=num_heads,
+#             affine=False,
+#             eps=group_norm_eps,
+#             device=device,
+#             dtype=dtype,
+#         )
+#         # The output project is slightly different, due to the "swish" gated layer.
+#         self.g_proj = nn.Linear(
+#             embed_dim, embed_dim, bias=bias, device=device, dtype=dtype
+#         )
+#         self.out_proj = nn.Linear(
+#             embed_dim, embed_dim, bias=bias, device=device, dtype=dtype
+#         )
+
+#         self._reset_parameters()
+
+#     def _reset_parameters(self):
+#         nn.init.xavier_normal_(self.q_proj.weight)
+#         if self.q_proj.bias is not None:
+#             nn.init.constant_(self.q_proj.bias, 0)
+#         nn.init.xavier_normal_(self.k_proj.weight)
+#         if self.k_proj.bias is not None:
+#             nn.init.constant_(self.k_proj.bias, 0)
+
+#         # TODO: Double-check that we're following the same initialization as in
+#         # the paper.  This is a generic initialization for MHA linear layers.
+#         nn.init.xavier_normal_(self.v_proj.weight)
+#         if self.v_proj.bias is not None:
+#             nn.init.constant_(self.v_proj.bias, 0)
+#         nn.init.xavier_normal_(self.out_proj.weight)
+#         if self.out_proj.bias is not None:
+#             nn.init.constant_(self.out_proj.bias, 0)
+#         nn.init.xavier_normal_(self.g_proj.weight)
+#         if self.g_proj.bias is not None:
+#             nn.init.constant_(self.g_proj.bias, 0)
+
+#     def forward_parallel(
+#         self,
+#         query: Tensor,
+#         key: Tensor,
+#         value: Tensor,
+#         need_weights: bool = False,
+#     ) -> Tuple[Tensor, Optional[Tensor]]:
+#         # einstein notation:
+#         # b - batch size
+#         # n - sequence length
+#         # h - number of heads
+#         # d - embedding dimension
+#         #
+#         # Input shape: (b, n, d)
+#         q: Tensor = self.q_proj(query)
+#         k: Tensor = self.k_proj(key)
+#         v: Tensor = self.v_proj(value)
+
+#         # Unfold 'd' dimension into 'h' separate retention heads.  Move the head
+#         # dimension to position 1 (makes matrix ops *much* faster).
+#         q = rearrange(q, "b n (h d) -> b h n d", h=self.num_heads)
+#         k = rearrange(k, "b n (h d) -> b h n d", h=self.num_heads)
+#         v = rearrange(v, "b n (h d) -> b h n d", h=self.num_heads)
+#         # Apply retention, then fold 'h' retention heads back into 'd'.
+#         retention, weights = retention_parallel(q, k, v, need_weights=need_weights)
+
+#         # To apply group norm in an equivalent way to the recursive formulation,
+#         # we fold the sequence dimension into the batch dimension.  Otherwise,
+#         # normalization would be applied over the entire input sequence.
+#         batch_size = retention.size(0)
+#         retention = rearrange(retention, "b h n d -> (b n) h d")
+#         retention = F.dropout(retention, p=self.dropout, training=self.training)
+#         retention = self.group_norm(retention)
+#         # Unfold 'n' from the batch dimension, and fold 'h' back into the embed dim.
+#         retention = rearrange(retention, "(b n) h d -> b n (h d)", b=batch_size)
+
+#         # NOTE: Unlike multihead attention, the retention paper applies a "swish"
+#         # gate to increase the non-linear capacity of the model.  (IMO this is likely
+#         # to make up for the lack of "softmax" activation in the retention mechanism.)
+#         #
+#         # The paper describes the gate as:
+#         #   g = swish(X * W_g)
+#         # where X is the input to the layer.  The authors only use Retention in a
+#         # Decoder-style module, the q/k/v inputs are the same (i.e. X = q = k = v).
+#         # So, I assume that 'query' can equivalently be used as the input.
+#         gate = torch.nn.functional.silu(self.g_proj(query))
+#         retention = self.out_proj(retention * gate)
+
+#         return retention, weights
+
+#     def forward_recurrent(
+#         self,
+#         query: Tensor,
+#         key: Tensor,
+#         value: Tensor,
+#         prev_state: Optional[Tensor],
+#     ) -> Tuple[Tensor, Optional[Tensor]]:
+#         # einstein notation:
+#         # b - batch size
+#         # h - number of heads
+#         # d - embedding dimension
+#         #
+#         # input shape: (b, d)
+#         q: Tensor = self.q_proj(query)
+#         k: Tensor = self.k_proj(key)
+#         v: Tensor = self.v_proj(value)
+
+#         # Unfold 'd' dimension into 'h' separate retention heads.
+#         q = rearrange(q, "b (h d) -> b h d", h=self.num_heads)
+#         k = rearrange(k, "b (h d) -> b h d", h=self.num_heads)
+#         v = rearrange(v, "b (h d) -> b h d", h=self.num_heads)
+#         # Apply retention then group norm.
+#         retention, state = retention_recurrent(q, k, v, prev_state=prev_state)
+#         retention = F.dropout(retention, p=self.dropout, training=self.training)
+#         retention = self.group_norm(retention)
+#         # Fold heads back into the embedding dimension.
+#         retention = rearrange(retention, "b h d -> b (h d)")
+
+#         # NOTE: Unlike multihead attention, the retention paper applies a "swish"
+#         # gate to increase the non-linear capacity of the model.  (IMO this is likely
+#         # to make up for the lack of "softmax" activation in the retention mechanism.)
+#         #
+#         # The paper describes the gate as:
+#         #   g = swish(X * W_g)
+#         # where X is the input to the layer.  The authors only use Retention in a
+#         # Decoder-style module, the q/k/v inputs are the same (i.e. X = q = k = v).
+#         # So, I assume that 'query' can equivalently be used as the input.
+#         gate = torch.nn.functional.silu(self.g_proj(query))
+#         retention = self.out_proj(retention * gate)
+
+#         return retention, state
+
+#     # TODO
+#     # def forward_chunkwise
+
+#     def forward(
+#         self,
+#         query: Tensor,
+#         key: Tensor,
+#         value: Tensor,
+#         need_weights: bool = False,
+#     ) -> Tuple[Tensor, Optional[Tensor]]:
+#         return self.forward_parallel(query, key, value, need_weights=need_weights)
 
 
 if __name__ == "__main__":
