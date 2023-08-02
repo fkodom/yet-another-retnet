@@ -9,8 +9,10 @@
 
 - [x] Equivalent **parallel** and **recursive** retention methods.  See: [retention.py](yet_another_retnet/retention.py)
 - [x] `MultiheadRetention` module.  See: [retention.py](yet_another_retnet/retention.py)
-- [ ] Equivalent **chunkwise** retention method.
 - [ ] Recurrent position embedding implementation.
+- [ ] `MultiscaleRetention` module. (Same as `MultiheadRetention`, but with positional embeddings explicitly part of the retention layer.)
+    - I don't understand why the authors did this.  It seems over-fitted to their language modeling use case.  Why not apply positional embeddings to the input, then just use `MultiheadRetention`?
+- [ ] Equivalent **chunkwise** retention method.
 - [ ] End-to-end `RetNet` module.
 - [ ] Reproduce inference memory, throughput, and latency benchmarks.
 - [ ] Release stable version on PyPI.
