@@ -6,7 +6,7 @@ A simple but robust PyTorch implementation of RetNet from [Retentive Network: A 
 >
 > Ultimately, their implementation is the ground truth.  I have tried to make my implementation as readable and well-documented as possible, while still being consistent with the original.  My version also includes full type annotations, and a robust set of unit tests.
 >
-> I'm obviously biased, but I find the untyped, config-driven approach in [microsoft/torchscale] clunky and difficult to adapt to other use cases.
+> I'm obviously biased, but I find the untyped, config-driven approach in [microsoft/torchscale](https://github.com/microsoft/torchscale/tree/main) clunky and difficult to adapt to other use cases.
 
 <img src="doc/retnet-scaling.jpeg" alt="compare-attention-mechanisms" width="600"/>
 
