@@ -13,7 +13,6 @@ dependencies = [
     # TODO: Check version ranges and pin dependencies
     "einops",
     "torch>=1.8",
-    "fairscale",
 ]
 requires-python = ">=3.8"
 classifiers = ["Programming Language :: Python :: 3"]

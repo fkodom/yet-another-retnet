@@ -1,5 +1,5 @@
 from math import log
-from typing import Optional, Tuple, Union
+from typing import Callable, Literal, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
@@ -7,6 +7,23 @@ from einops import einsum, rearrange, repeat
 from torch import Tensor, nn
 
 DEFAULT_DEVICE = torch.device("cpu")
+
+ActivationString = Literal["swish", "gelu", "relu"]
+
+
+def _get_activation_fn(activation: str) -> Callable[[Tensor], Tensor]:
+    """Return an activation function given a string"""
+    if activation == "swish":
+        return F.relu
+    elif activation == "gelu":
+        return F.gelu
+    elif activation == "relu":
+        return F.relu
+    else:
+        raise RuntimeError(
+            f"Unsupported activation string '{activation}'. "
+            "Supported: 'swish', 'gelu', 'relu'"
+        )
 
 
 def _build_decay_gammas(
@@ -202,6 +219,7 @@ class MultiScaleRetention(nn.Module):
         relative_position: bool = True,
         bias: bool = True,
         batch_first: bool = True,
+        activation: Union[ActivationString, Callable[[Tensor], Tensor]] = "swish",
         group_norm_eps: float = 1e-6,
         device: Optional[Union[torch.device, str]] = None,
         dtype: Optional[torch.dtype] = None,
@@ -213,6 +231,8 @@ class MultiScaleRetention(nn.Module):
     ):
         if not batch_first:
             raise NotImplementedError("batch_first=False is not yet supported")
+        if isinstance(activation, str):
+            activation = _get_activation_fn(activation)
 
         super().__init__()
         self.embed_dim = embed_dim
@@ -220,7 +240,7 @@ class MultiScaleRetention(nn.Module):
         self.dropout = dropout
         self.relative_position = relative_position
         self.bias = bias
-        self.batch_first = batch_first
+        self.activation = activation
 
         if embed_dim % self.num_heads != 0:
             raise ValueError(
@@ -348,8 +368,7 @@ class MultiScaleRetention(nn.Module):
         # where X is the input to the layer.  The authors use Retention in a
         # Decoder-only model, the q/k/v inputs are the same (i.e. X = q = k = v).
         # So, I assume that 'query' can equivalently be used as the input.
-        # TODO: Also allow a 'gelu' activation option.
-        gate = torch.nn.functional.silu(self.g_proj(query))
+        gate = self.activation(self.g_proj(query))
         retention = self.out_proj(retention * gate)
 
         return retention, weights
@@ -361,7 +380,7 @@ class MultiScaleRetention(nn.Module):
         value: Tensor,
         seq_idx: int,
         prev_state: Optional[Tensor],
-    ) -> Tuple[Tensor, Optional[Tensor]]:
+    ) -> Tuple[Tensor, Tensor]:
         # einstein notation:
         # b - batch size
         # h - number of heads
@@ -403,8 +422,7 @@ class MultiScaleRetention(nn.Module):
         # where X is the input to the layer.  The authors use Retention in a
         # Decoder-only model, the q/k/v inputs are the same (i.e. X = q = k = v).
         # So, I assume that 'query' can equivalently be used as the input.
-        # TODO: Also allow a 'gelu' activation option.
-        gate = torch.nn.functional.silu(self.g_proj(query))
+        gate = self.activation(self.g_proj(query))
         retention = self.out_proj(retention * gate)
 
         return retention, state

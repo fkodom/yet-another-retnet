@@ -13,9 +13,11 @@
 - [x] Make relative position embeddings for `MultiScaleRetention` **optional**.
     - The retention layer explicitly includes a position embedding update, which is based on [xPos](https://arxiv.org/pdf/2212.10554.pdf).  It does not necessarily translate well to other domains (e.g. computer vision, heterogeneous graphs).  So I have made it optional.
     - I'm not 100% sure why the authors did this.  It seems overly specific to the language modeling use case, and it's not clear to me that it was necessary.
-- [ ] Equivalent **chunkwise** retention method.
 - [ ] End-to-end `RetNet` module.
+    - [x] `RetNetDecoderLayer`
+    - [ ] `RetNetDecoder`
 - [ ] Reproduce inference memory, throughput, and latency benchmarks.
+- [ ] Equivalent **chunkwise** retention method.
 - [ ] Release stable version on PyPI.
 
 
