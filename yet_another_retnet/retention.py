@@ -433,29 +433,3 @@ class MultiScaleRetention(nn.Module):
         need_weights: bool = False,
     ) -> Tuple[Tensor, Optional[Tensor]]:
         return self.forward_parallel(query, key, value, need_weights=need_weights)
-
-
-if __name__ == "__main__":
-    batch_size = 1
-    seq_len = 8
-    embed_dim = 16
-    num_heads = 2
-    device = "cuda"
-    dtype = torch.float32
-
-    query = torch.randn(batch_size, seq_len, embed_dim, device=device, dtype=dtype)
-    key = torch.randn(batch_size, seq_len, embed_dim, device=device, dtype=dtype)
-    value = torch.randn(batch_size, seq_len, embed_dim, device=device, dtype=dtype)
-    mhr = MultiScaleRetention(
-        embed_dim, num_heads, batch_first=True, device=device, dtype=dtype
-    ).eval()
-
-    with torch.no_grad():
-        yp, weights = mhr.forward_parallel(query, key, value)
-        print(yp[:, 2])
-
-        prev_state: Optional[Tensor] = None
-        for i in range(3):
-            q, k, v = query[:, i], key[:, i], value[:, i]
-            yr, prev_state = mhr.forward_recurrent(q, k, v, prev_state)
-            print(yr)
