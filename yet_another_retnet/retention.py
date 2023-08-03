@@ -252,10 +252,6 @@ class MultiScaleRetention(nn.Module):
             raise ValueError(
                 f"head_dim (embed_dim / num_heads = {head_dim}) must be divisible by 8"
             )
-        if not head_dim <= 128:
-            raise ValueError(
-                f"head_dim (embed_dim / num_heads = {head_dim}) must be <= 128"
-            )
 
         # The q/k/v projection layers are the same as in vanilla MHA.
         self.q_proj = nn.Linear(

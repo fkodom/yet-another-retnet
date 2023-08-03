@@ -1,4 +1,5 @@
-from typing import Callable, Optional, Tuple, Union
+from copy import deepcopy
+from typing import Callable, List, Optional, Sequence, Tuple, Union
 
 import torch
 from torch import Tensor, nn
@@ -22,7 +23,7 @@ class RetNetDecoderLayer(nn.Module):
         dim_feedforward: int = 2048,
         dropout: float = 0.1,
         activation: Union[ActivationString, Callable[[Tensor], Tensor]] = "swish",
-        norm_first: bool = False,
+        norm_first: bool = True,
         layer_norm_eps: float = 1e-5,
         device: Optional[Union[torch.device, str]] = None,
         dtype: Optional[torch.dtype] = None,
@@ -111,25 +112,183 @@ class RetNetDecoderLayer(nn.Module):
         return self.forward_parallel(x)
 
 
+class RetNetDecoder(nn.Module):
+    def __init__(self, decoder_layer: RetNetDecoderLayer, num_layers: int):
+        super().__init__()
+        self.num_layers = num_layers
+        self.layers = nn.ModuleList(
+            [deepcopy(decoder_layer) for _ in range(num_layers)]
+        )
+
+    def forward_parallel(self, x: Tensor) -> Tensor:
+        for layer in self.layers:
+            assert isinstance(layer, RetNetDecoderLayer)
+            x = layer.forward_parallel(x)
+        return x
+
+    def forward_recurrent(
+        self, x: Tensor, seq_idx: int, prev_states: Sequence[Optional[Tensor]] = ()
+    ) -> Tuple[Tensor, List[Tensor]]:
+        if not prev_states:
+            prev_states = [None] * self.num_layers
+        elif len(prev_states) != len(self.layers):
+            raise ValueError(
+                f"Expected {len(self.layers)} previous states, got {len(prev_states)}"
+            )
+
+        states: List[Tensor] = []
+        for layer, prev_state in zip(self.layers, prev_states):
+            assert isinstance(layer, RetNetDecoderLayer)
+            x, state = layer.forward_recurrent(x, seq_idx, prev_state)
+            states.append(state)
+        return x, states
+
+    # TODO
+    # def forward_chunkwise
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.forward_parallel(x)
+
+
+class RetNet(nn.Module):
+    def __init__(
+        self,
+        num_tokens: int,  # usually obtained from the tokenizer
+        d_model: int = 512,
+        nhead: int = 8,
+        num_layers: int = 6,
+        dropout: float = 0.1,
+        activation: Union[ActivationString, Callable[[Tensor], Tensor]] = "swish",
+        dim_feedforward: int = 2048,
+        norm_first: bool = True,
+        layer_norm_eps: float = 1e-5,
+        device: Optional[Union[torch.device, str]] = None,
+        dtype: Optional[torch.dtype] = None,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.num_layers = num_layers
+        self.embedding = nn.Embedding(num_tokens, d_model, device=device, dtype=dtype)
+        decoder_layer = RetNetDecoderLayer(
+            d_model,
+            nhead,
+            dropout=dropout,
+            activation=activation,
+            dim_feedforward=dim_feedforward,
+            norm_first=norm_first,
+            layer_norm_eps=layer_norm_eps,
+            device=device,
+            dtype=dtype,
+        )
+        self.decoder = RetNetDecoder(decoder_layer, num_layers)
+
+    def forward_parallel(self, x: Tensor) -> Tensor:
+        x = self.embedding(x)
+        x = self.decoder.forward_parallel(x)
+        return x
+
+    def forward_recurrent(
+        self, x: Tensor, seq_idx: int, prev_states: Sequence[Optional[Tensor]] = ()
+    ) -> Tuple[Tensor, List[Tensor]]:
+        x = self.embedding(x)
+        x, states = self.decoder.forward_recurrent(
+            x, seq_idx=seq_idx, prev_states=prev_states
+        )
+        return x, states
+
+    # TODO
+    # def forward_chunkwise
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.forward_parallel(x)
+
+
+def retnet_1_3b(
+    num_tokens: int,  # usually obtained from the tokenizer
+    device: Optional[Union[torch.device, str]] = None,
+    dtype: Optional[torch.dtype] = None,
+) -> RetNet:
+    """RetNet 1.3B configuration from the paper:
+    https://arxiv.org/pdf/2307.08621v3.pdf
+    """
+    return RetNet(
+        num_tokens=num_tokens,
+        d_model=2048,
+        nhead=8,
+        num_layers=24,
+        dim_feedforward=4096,
+        device=device,
+        dtype=dtype,
+    )
+
+
+def retnet_2_7b(
+    num_tokens: int,  # usually obtained from the tokenizer
+    device: Optional[Union[torch.device, str]] = None,
+    dtype: Optional[torch.dtype] = None,
+) -> RetNet:
+    """RetNet 2.7B configuration from the paper:
+    https://arxiv.org/pdf/2307.08621v3.pdf
+    """
+    return RetNet(
+        num_tokens=num_tokens,
+        d_model=2560,
+        nhead=10,
+        num_layers=32,
+        dim_feedforward=5120,
+        device=device,
+        dtype=dtype,
+    )
+
+
+def retnet_6_7b(
+    num_tokens: int,  # usually obtained from the tokenizer
+    device: Optional[Union[torch.device, str]] = None,
+    dtype: Optional[torch.dtype] = None,
+) -> RetNet:
+    """RetNet 6.7B configuration from the paper:
+    https://arxiv.org/pdf/2307.08621v3.pdf
+    """
+    return RetNet(
+        num_tokens=num_tokens,
+        d_model=4096,
+        nhead=16,
+        num_layers=32,
+        dim_feedforward=8192,
+        device=device,
+        dtype=dtype,
+    )
+
+
 if __name__ == "__main__":
+    num_tokens = 1000
     batch_size = 1
     seq_len = 8
-    embed_dim = 16
-    num_heads = 2
+    d_model = 32
+    nhead = 2
+    num_layers = 2
     device = "cuda"
     dtype = torch.float32
 
-    x = torch.randn(batch_size, seq_len, embed_dim, device=device, dtype=dtype)
-    layer = RetNetDecoderLayer(
-        embed_dim, num_heads, dropout=0, dim_feedforward=32, device=device, dtype=dtype
+    size = (batch_size, seq_len)
+    x = torch.randint(0, num_tokens, size=size, device=device)
+    net = RetNet(
+        num_tokens=num_tokens,
+        d_model=d_model,
+        nhead=nhead,
+        num_layers=num_layers,
+        device=device,
+        dtype=dtype,
     ).eval()
 
-    with torch.no_grad():
-        yp = layer.forward_parallel(x)
-        print(yp[:, 2])
+    y_parallel = net.forward_parallel(x)
 
-        prev_state: Optional[Tensor] = None
-        for i in range(3):
-            xx = x[:, i]
-            yr, prev_state = layer.forward_recurrent(xx, i, prev_state)
-            print(yr)
+    y_recurrent = torch.zeros_like(y_parallel)
+    prev_states: Sequence[Optional[Tensor]] = [None] * num_layers
+    for i in range(seq_len):
+        xr = x[:, i]
+        y_recurrent[:, i], prev_states = net.forward_recurrent(
+            xr, seq_idx=i, prev_states=prev_states
+        )
+
+    torch.testing.assert_close(y_parallel, y_recurrent)
