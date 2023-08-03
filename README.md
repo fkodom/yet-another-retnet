@@ -19,6 +19,7 @@
 - [ ] Reproduce inference memory, throughput, and latency benchmarks.
 - [ ] Equivalent **chunkwise** retention method.
 - [ ] Release stable version on PyPI.
+- [ ] Basic training example for language modeling.
 
 
 ## Install
