@@ -289,15 +289,14 @@ class MultiScaleRetention(nn.Module):
         self._reset_parameters()
 
     def _reset_parameters(self):
+        # TODO: Double-check that we're following the same initialization as in
+        # the paper.  This is a generic initialization for MHA linear layers.
         nn.init.xavier_normal_(self.q_proj.weight)
         if self.q_proj.bias is not None:
             nn.init.constant_(self.q_proj.bias, 0)
         nn.init.xavier_normal_(self.k_proj.weight)
         if self.k_proj.bias is not None:
             nn.init.constant_(self.k_proj.bias, 0)
-
-        # TODO: Double-check that we're following the same initialization as in
-        # the paper.  This is a generic initialization for MHA linear layers.
         nn.init.xavier_normal_(self.v_proj.weight)
         if self.v_proj.bias is not None:
             nn.init.constant_(self.v_proj.bias, 0)

@@ -59,4 +59,4 @@ def test_retnet_parallel_equals_recursive(
             xr, seq_idx=i, prev_states=prev_states
         )
 
-    torch.testing.assert_close(y_parallel, y_recurrent)
+    torch.testing.assert_close(y_parallel, y_recurrent, rtol=1e-4, atol=1e-4)

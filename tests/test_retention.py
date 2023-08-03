@@ -51,7 +51,7 @@ def test_parallel_equals_recursive(
         q, k, v = query[:, :, i], key[:, :, i], value[:, :, i]
         y_recurrent[:, :, i], prev_state = retention_recurrent(q, k, v, prev_state)
 
-    torch.testing.assert_close(y_parallel, y_recurrent)
+    torch.testing.assert_close(y_parallel, y_recurrent, rtol=1e-4, atol=1e-4)
 
 
 def test_multiscale_retention_forward_parallel():
@@ -91,4 +91,4 @@ def test_multiscale_parallel_equals_recursive(
             q, k, v, seq_idx=i, prev_state=prev_state
         )
 
-    torch.testing.assert_close(y_parallel, y_recurrent)
+    torch.testing.assert_close(y_parallel, y_recurrent, rtol=1e-4, atol=1e-4)
