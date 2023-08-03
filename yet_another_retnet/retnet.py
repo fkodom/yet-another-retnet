@@ -181,10 +181,18 @@ class RetNet(nn.Module):
             dtype=dtype,
         )
         self.decoder = RetNetDecoder(decoder_layer, num_layers)
+        self.out = nn.Linear(d_model, num_tokens, device=device, dtype=dtype)
+
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        nn.init.xavier_normal_(self.out.weight)
+        nn.init.constant_(self.out.bias, 0)
 
     def forward_parallel(self, x: Tensor) -> Tensor:
         x = self.embedding(x)
         x = self.decoder.forward_parallel(x)
+        x = self.out(x)
         return x
 
     def forward_recurrent(
@@ -194,6 +202,7 @@ class RetNet(nn.Module):
         x, states = self.decoder.forward_recurrent(
             x, seq_idx=seq_idx, prev_states=prev_states
         )
+        x = self.out(x)
         return x, states
 
     # TODO
