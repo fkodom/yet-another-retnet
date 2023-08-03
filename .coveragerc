@@ -1,5 +1,8 @@
 [run]
 source = yet_another_retnet
+omit = 
+    yet_another_retnet/utils/benchmark.py
+    yet_another_retnet/utils/profile.py
 
 [report]
 exclude_lines =

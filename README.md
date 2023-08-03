@@ -1,6 +1,6 @@
 # yet-another-retnet
 
-(Work in progress) A simple but robust PyTorch implementation of RetNet from [Retentive Network: A Successor to Transformer for Large Language Models](https://arxiv.org/pdf/2307.08621.pdf).
+A simple but robust PyTorch implementation of RetNet from [Retentive Network: A Successor to Transformer for Large Language Models](https://arxiv.org/pdf/2307.08621.pdf).
 
 <img src="doc/retnet-scaling.jpeg" alt="compare-attention-mechanisms" width="600"/>
 
@@ -11,13 +11,13 @@
 - [x] Recurrent position embedding implementation.
 - [x] `MultiScaleRetention` module.  See: [retention.py](yet_another_retnet/retention.py)
 - [x] Make relative position embeddings for `MultiScaleRetention` **optional**.
-    - The retention layer explicitly includes a position embedding update, which is based on [xPos](https://arxiv.org/pdf/2212.10554.pdf).  It does not necessarily translate well to other domains (e.g. computer vision, heterogeneous graphs).  So I have made it optional.
+    - The retention layer explicitly includes a position embedding update, which is based on [xPos](https://arxiv.org/pdf/2212.10554.pdf).  It does not necessarily translate well to other domains (e.g. computer vision, heterogeneous graphs).  So, I have made it optional.
     - I'm not 100% sure why the authors did this.  It seems overly specific to the language modeling use case, and it's not clear to me that it was necessary.
-- [x] End-to-end `RetNet` module.
+- [x] End-to-end `RetNet` module.  See: [retnet.py](yet_another_retnet/retnet.py)
     - [x] `RetNetDecoderLayer`
     - [x] `RetNetDecoder`
-- [x] Preconfigured 1.3B, 2.7B, and 6.7B models (untrained)
-- [ ] Reproduce inference memory, throughput, and latency benchmarks.
+- [x] Preconfigured 1.3B, 2.7B, and 6.7B models (untrained).  See: [retnet.py](yet_another_retnet/retnet.py)
+- [x] Reproduce inference memory and throughput benchmarks from the paper.  See: [Inference Benchmarks](#inference-benchmarks), [benchmark_inference.py](scripts/benchmark_inference.py)
 - [ ] Equivalent **chunkwise** retention method.
 - [ ] Release stable version on PyPI.
 - [ ] Basic training example for language modeling.
@@ -187,4 +187,22 @@ for i in range(32):
     outputs.append(out)
 y_recursive = torch.stack(outputs, dim=2)
 ```
+
+
+## Inference Benchmarks
+
+> **NOTE**: The benchmarks aren't exact one-to-one comparisons, because I have a much lower-end GPU.  The authors benchmark RetNet 6.7B using an A100 80GB.  I have a 2080 Ti (11GB), so I chose to benchmark RetNet 1.3B instead.  I expect the batch size is also smaller in my benchmarks, although the authors don't specify what their batch size was.
+> 
+> My benchmarks clearly show the same scaling trends, which is still helpful as a rough validation.
+
+From the paper:
+
+<img src="doc/benchmarks.png" alt="retention-dual-forms" width="600"/>
+
+From this repo:
+
+<p float="left">
+    <img src="doc/inference-memory.png" alt="retention-dual-forms" width="300"/>
+    <img src="doc/inference-throughput.png" alt="retention-benchmarks" width="300"/>
+</p>
 
