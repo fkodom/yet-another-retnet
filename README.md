@@ -24,21 +24,32 @@ A simple but robust PyTorch implementation of RetNet from [Retentive Network: A 
     - [x] `RetNetDecoder`
 - [x] Preconfigured 1.3B, 2.7B, and 6.7B models (untrained).  See: [retnet.py](yet_another_retnet/retnet.py)
 - [x] Reproduce inference memory and throughput benchmarks from the paper.  See: [Inference Benchmarks](#inference-benchmarks), [benchmark_inference.py](scripts/benchmark_inference.py)
+- [x] Release stable version on PyPI.
+    - [x] Prerelease
+    - [x] Stable
 - [ ] Equivalent **chunkwise** retention method.
-- [ ] Release stable version on PyPI.
 - [ ] Basic training example for language modeling.
 
 
 ## Install
 
+PyPI:
+```bash
+pip install yet-another-retnet
+```
+
+From source:
 ```bash
 pip install "yet-another-retnet @ git+ssh://git@github.com/fkodom/yet-another-retnet.git"
 ```
 
 For contributors:
 ```bash
-# Install all dev dependencies (tests etc.)
-pip install "yet-another-retnet[test] @ git+ssh://git@github.com/fkodom/yet-another-retnet.git"
+# Clone/fork the repository
+gh repo clone fkodom/yet-another-retnet
+cd yet-another-retnet
+# Install all dev dependencies (tests etc.) in editable mode
+pip install -e .[test]
 # Setup pre-commit hooks
 pre-commit install
 ```

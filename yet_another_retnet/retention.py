@@ -7,7 +7,6 @@ from einops import einsum, rearrange, repeat
 from torch import Tensor, nn
 
 DEFAULT_DEVICE = torch.device("cpu")
-
 ActivationString = Literal["swish", "gelu", "relu"]
 
 
@@ -52,9 +51,9 @@ def _build_decay_mask(
     dtype: Optional[torch.dtype] = None,
 ) -> Tensor:
     """The decay mask is one of the key components that makes *parallel* retention
-    equivalent to *recursive* retention.  The decay coefficients are pre-computed
+    equivalent to *recurrent* retention.  The decay coefficients are pre-computed
     and applied to the similarity matrix at once, rather than being applied to
-    each element in the recursive formulation.
+    each element in the recurrent formulation.
 
     See: https://arxiv.org/pdf/2307.08621v3.pdf, Equation 5
     """
@@ -81,7 +80,7 @@ def _build_position_thetas(
 ) -> Tensor:
     """Positional thetas are different for each value along head_dim, following the
     prescribed method in the paper.  These are used to update the positional
-    embeddings in both the parallel and recursive formulations of retention.
+    embeddings in both the parallel and recurrent formulations of retention.
     See: https://arxiv.org/pdf/2307.08621v3.pdf, Section 2.1 (Retention)
 
     NOTE: The actual values for thetas are not specified in the paper, so I
@@ -193,7 +192,7 @@ def retention_recurrent(
 class MultiScaleRetention(nn.Module):
     """Multi-scale retention (MSR) layer.  Intended to be (mostly) a drop-in replacement
     for nn.MultiheadAttention, but with the option to use either the parallel or
-    recursive formulation of retention. (Attention only has the parallel formulation.)
+    recurrent formulation of retention. (Attention only has the parallel formulation.)
 
     NOTE: As presented in the paper, Multi-Scale Retention includes an explicit
     position embedding, which is based on xPos.  IMO, this is unnecessary and overly
@@ -344,7 +343,7 @@ class MultiScaleRetention(nn.Module):
 
         # Apply retention then group norm.
         retention, weights = retention_parallel(q, k, v, need_weights=need_weights)
-        # To apply group norm in an equivalent way to the recursive formulation,
+        # To apply group norm in an equivalent way to the recurrent formulation,
         # we fold the sequence dimension into the batch dimension.  Otherwise,
         # normalization would be applied over the entire input sequence.
         batch_size = retention.size(0)
