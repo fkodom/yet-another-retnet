@@ -279,11 +279,13 @@ class MultiScaleRetention(nn.Module):
         )
 
         # 'thetas' parameter for updating the relative position embeddings.
-        self.thetas: Optional[Tensor] = None
+        thetas: Optional[Tensor] = None
         if relative_position:
-            self.thetas = _build_position_thetas(
+            thetas = _build_position_thetas(
                 head_dim=head_dim, device=device, dtype=dtype
             )
+        self.thetas: Optional[Tensor]
+        self.register_buffer("thetas", thetas)
 
         self._reset_parameters()
 
@@ -331,6 +333,7 @@ class MultiScaleRetention(nn.Module):
         v = rearrange(v, "b n (h d) -> b h n d", h=self.num_heads)
 
         if self.relative_position:
+            assert self.thetas is not None
             indices = torch.arange(q.size(2), device=q.device, dtype=q.dtype)
             indices = rearrange(indices, "n -> () () n ()")
             thetas = rearrange(self.thetas, "d -> () () () d")

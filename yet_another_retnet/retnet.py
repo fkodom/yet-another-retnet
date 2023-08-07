@@ -2,6 +2,7 @@ from copy import deepcopy
 from typing import Callable, List, Optional, Sequence, Tuple, Union
 
 import torch
+from einops import rearrange
 from torch import Tensor, nn
 
 from yet_another_retnet.retention import (
@@ -208,8 +209,10 @@ class RetNet(nn.Module):
     # TODO
     # def forward_chunkwise
 
-    def forward(self, x: Tensor) -> Tensor:
-        return self.forward_parallel(x)
+    def forward(self, inputs: Tensor, labels: Tensor) -> Tensor:
+        pred = self.forward_parallel(inputs)
+        criterion = nn.CrossEntropyLoss()
+        return criterion(rearrange(pred, "b n c -> (b n) c"), labels.flatten())
 
 
 def retnet_1_3b(
