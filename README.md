@@ -223,3 +223,16 @@ From this repo:
     <img src="doc/inference-throughput.png" alt="retention-benchmarks" width="300"/>
 </p>
 
+
+## Citations
+
+```bibtex
+@misc{sun2023retentive,
+      title={Retentive Network: A Successor to Transformer for Large Language Models}, 
+      author={Yutao Sun and Li Dong and Shaohan Huang and Shuming Ma and Yuqing Xia and Jilong Xue and Jianyong Wang and Furu Wei},
+      year={2023},
+      eprint={2307.08621},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL}
+}
+```
