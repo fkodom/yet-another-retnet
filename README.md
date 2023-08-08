@@ -153,7 +153,7 @@ y_parallel, _ = mhr.forward_parallel(q, k, v)
 # Recursive retention
 outputs = []
 prev_state = None
-for idx in range(32):
+for idx in range(16):
     out, prev_state = mhr.forward_recurrent(
         q[:, idx], k[:, idx], v[:, idx], idx, prev_state
     )
