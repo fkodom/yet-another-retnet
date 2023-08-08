@@ -95,16 +95,11 @@ def _build_position_thetas(
 # NOTE: For the purposes of positional embeddings, we view query/key Tensors as
 # complex-valued, where the even-numbered indices are the real part, and the
 # odd-numbered indices are the imaginary part.  This makes it easy to compute
-# the complex conjugate without *actually* using complex dtypes in PyTorch.
+# complex values without *actually* using complex dtypes in PyTorch.
 # (Complex dtypes have limited support compared to real dtypes.)
 #
 # I don't re-explain this in the functions below, but it's important to keep in
 # mind when reading the code.
-
-
-def _complex_conjugate(x: Tensor) -> Tensor:
-    """Complex conjugate of a complex-valued tensor."""
-    return torch.stack((x[..., ::2], -x[..., 1::2]), dim=-1).flatten(start_dim=-2)
 
 
 def _multiply_by_i(x: Tensor) -> Tensor:
@@ -339,7 +334,7 @@ class MultiScaleRetention(nn.Module):
             cos = torch.cos(angles)
 
             q = _theta_shift(q, sin, cos)
-            k = _complex_conjugate(_theta_shift(k, sin, cos))
+            k = _theta_shift(k, sin, cos)
 
         # Apply retention then group norm.
         retention, weights = retention_parallel(q, k, v, need_weights=need_weights)
@@ -398,7 +393,7 @@ class MultiScaleRetention(nn.Module):
             cos = torch.cos(angles)
 
             q = _theta_shift(q, sin, cos)
-            k = _complex_conjugate(_theta_shift(k, sin, cos))
+            k = _theta_shift(k, sin, cos)
 
         # Apply retention then group norm.
         retention, state = retention_recurrent(q, k, v, prev_state=prev_state)
