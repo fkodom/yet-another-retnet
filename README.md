@@ -13,7 +13,7 @@ A simple but robust PyTorch implementation of RetNet from [Retentive Network: A 
 
 ### TODO
 
-- [x] Equivalent **parallel** and **recursive** retention methods.  See: [retention.py](yet_another_retnet/retention.py)
+- [x] Equivalent **parallel** and **recurrent** retention methods.  See: [retention.py](yet_another_retnet/retention.py)
 - [x] Recurrent position embedding implementation.
 - [x] `MultiScaleRetention` module.  See: [retention.py](yet_another_retnet/retention.py)
 - [x] Make relative position embeddings for `MultiScaleRetention` **optional**.
@@ -124,10 +124,10 @@ prev_states = []  # cache layer states after each step
 for idx in range(16):  # seq_len
     out, prev_states = retnet.forward_recurrent(x[:, idx], idx, prev_states)
     outputs.append(out)
-y_recursive = torch.stack(outputs, dim=1)
+y_recurrent = torch.stack(outputs, dim=1)
 
 # Check that outputs are equal
-torch.testing.assert_close(y_parallel, y_recursive)
+torch.testing.assert_close(y_parallel, y_recurrent)
 ```
 
 **NOTE**: There is some floating point error accumulation in the recurrent formulation, which I believe is less pronounced in the parallel formulation. Especially for untrained models (when activations are very large), the two outputs may not match *exactly*.  The difference should still be very small -- on the order of 1e-5 or less.
@@ -150,7 +150,7 @@ q = k = v = torch.randn(1, 16, 32, device="cuda")
 # Parallel retention
 y_parallel, _ = mhr.forward_parallel(q, k, v)
 
-# Recursive retention
+# Recurrent retention
 outputs = []
 prev_state = None
 for idx in range(32):
@@ -158,10 +158,10 @@ for idx in range(32):
         q[:, idx], k[:, idx], v[:, idx], idx, prev_state
     )
     outputs.append(out)
-y_recursive = torch.stack(outputs, dim=1)
+y_recurrent = torch.stack(outputs, dim=1)
 
 # Check that outputs are equal
-torch.testing.assert_close(y_parallel, y_recursive)
+torch.testing.assert_close(y_parallel, y_recurrent)
 ```
 
 **NOTE**: The `MultiScaleRetention` that is described in the paper includes an
@@ -196,13 +196,13 @@ q = k = v = torch.randn(1, 4, 32, 8, device="cuda")
 # Parallel retention
 y_parallel, _ = retention_parallel(q, k, v)
 
-# Recursive retention
+# Recurrent retention
 outputs = []
 prev_state = None
 for i in range(32):
     out, prev_state = retention_recurrent(q[:, :, i], k[:, :, i], v[:, :, i], prev_state)
     outputs.append(out)
-y_recursive = torch.stack(outputs, dim=2)
+y_recurrent = torch.stack(outputs, dim=2)
 ```
 
 

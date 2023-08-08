@@ -18,7 +18,7 @@ def test_retnet_forward_parallel():
     pass
 
 
-def test_retnet_forward_recursive():
+def test_retnet_forward_recurrent():
     # TODO
     pass
 
@@ -30,7 +30,7 @@ def test_retnet_forward_recursive():
 @pytest.mark.parametrize("num_layers", [1, 2])
 @pytest.mark.parametrize("batch_size", [2])
 @pytest.mark.parametrize("seq_length", [8])
-def test_retnet_parallel_equals_recursive(
+def test_retnet_parallel_equals_recurrent(
     num_tokens: int,
     d_model: int,
     nhead: int,

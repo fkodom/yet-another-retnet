@@ -72,6 +72,26 @@ def _build_decay_mask(
     return decay_gammas**distance
 
 
+def _build_chunkwise_decay_mask(
+    chunk_size: int,
+    decay_gammas: Tensor,
+    device: Optional[Union[torch.device, str]] = None,
+    dtype: Optional[torch.dtype] = None,
+) -> Tensor:
+    """The chunkwise decay mask is used in the chunkwise formulation of retention.
+    It is derived from the recurrent formulation -- we apply increasing amounts
+    of decay to the previous state, based on the position of each token in the
+    input chunk.  So, we add a 'sequence' dimension to the decay gammas, and
+    raise them to the power of the position of each token in the chunk.
+
+    See: https://arxiv.org/pdf/2307.08621v3.pdf, Equation 7
+    """
+    chunk_pos = torch.arange(chunk_size, device=device, dtype=dtype)
+    chunk_pos = rearrange(chunk_pos, "n -> () n")
+    decay_gammas = rearrange(decay_gammas, "h -> h ()")
+    return decay_gammas**chunk_pos
+
+
 def _build_position_thetas(
     head_dim: int,
     scale: float = 10000,
@@ -122,9 +142,7 @@ def retention_parallel(
 ) -> Tuple[Tensor, Optional[Tensor]]:
     if decay_gammas is None:
         decay_gammas = _build_decay_gammas(
-            num_heads=query.shape[1],
-            device=query.device,
-            dtype=query.dtype,
+            num_heads=query.shape[1], device=query.device, dtype=query.dtype
         )
     decay_mask = _build_decay_mask(
         query_length=query.shape[2],
@@ -163,9 +181,7 @@ def retention_recurrent(
 ) -> Tuple[Tensor, Tensor]:
     if decay_gammas is None:
         decay_gammas = _build_decay_gammas(
-            num_heads=query.shape[1],
-            device=query.device,
-            dtype=query.dtype,
+            num_heads=query.shape[1], device=query.device, dtype=query.dtype
         )
 
     # einstein notation:
@@ -180,6 +196,60 @@ def retention_recurrent(
     if prev_state is not None:
         state = state + prev_state * rearrange(decay_gammas, "h -> () h () ()")
     retention = einsum(query, state, "b h d, b h d m -> b h m")
+
+    return retention, state
+
+
+def retention_chunkwise(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    prev_state: Optional[Tensor],
+    scale: Optional[float] = None,
+    decay_gammas: Optional[Tensor] = None,
+) -> Tuple[Tensor, Tensor]:
+    if decay_gammas is None:
+        decay_gammas = _build_decay_gammas(
+            num_heads=query.shape[1], device=query.device, dtype=query.dtype
+        )
+
+    # einstein notation:
+    # - b: batch_size
+    # - h: num_heads
+    # - n / s: seq_length
+    # - d: head_dim
+    if scale is None:
+        scale = key.size(-1) ** 0.5
+    key = key / scale
+
+    # intra-chunk (same as parallel retention)
+    decay_mask = _build_decay_mask(
+        query_length=query.shape[2],
+        key_length=key.shape[2],
+        decay_gammas=decay_gammas,
+        device=query.device,
+        dtype=query.dtype,
+    )
+    similarity = einsum(query, key, "b h n d, b h s d -> b h n s")
+    similarity = similarity * rearrange(decay_mask, "h n s -> () h n s")
+    inner_retention = einsum(similarity, value, "b h n s, b h s d -> b h n d")
+
+    # cross-chunk (derived from recurrent retention)
+    state = einsum(key, value, "b h n d1, b h n d2 -> b h d1 d2")
+    if prev_state is not None:
+        inner_pos = torch.arange(key.size(2), device=key.device, dtype=key.dtype) + 1
+        inner_pos = rearrange(inner_pos, "n -> () () n ()")
+        inner_decay = rearrange(decay_gammas, "h -> () h () ()") ** inner_pos
+        cross_retention = (
+            einsum(query, prev_state, "b h n d1, b h d1 d2 -> b h n d2") * inner_decay
+        )
+        chunk_decay = rearrange(decay_gammas, "h -> () h () ()") ** key.size(2)
+        state = state + prev_state * chunk_decay
+
+        retention = inner_retention + cross_retention
+
+    else:
+        retention = inner_retention
 
     return retention, state
 
@@ -427,3 +497,23 @@ class MultiScaleRetention(nn.Module):
         need_weights: bool = False,
     ) -> Tuple[Tensor, Optional[Tensor]]:
         return self.forward_parallel(query, key, value, need_weights=need_weights)
+
+
+if __name__ == "__main__":
+    batch_size = 1
+    seq_len = 3
+    embed_dim = 3
+    num_heads = 1
+
+    x = torch.randn(batch_size, num_heads, seq_len, embed_dim)
+    y_chunkwise, chunkwise_state = retention_chunkwise(x, x, x, prev_state=None)
+    print(chunkwise_state)
+    print("-" * 40)
+
+    y_recurrent = torch.zeros_like(y_chunkwise)
+    recurrent_state = None
+    for i in range(seq_len):
+        y_recurrent[:, :, i, :], recurrent_state = retention_recurrent(
+            x[:, :, i, :], x[:, :, i, :], x[:, :, i, :], prev_state=recurrent_state
+        )
+    print(recurrent_state)
