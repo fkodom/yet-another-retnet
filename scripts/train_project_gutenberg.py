@@ -230,8 +230,8 @@ def main(
     seed: int = 42,
 ):
     seed_everything(seed)
-    # Create a (very small) model and dataloaders
-    retnet = RetNet(num_tokens=TOKENIZER.n_vocab, dim_feedforward=1024, num_layers=4)
+    # Create a (small) model and dataloaders
+    retnet = RetNet(num_tokens=TOKENIZER.n_vocab)
     train_dataloader = DataLoader(
         project_gutenberg_top_100_datapipe(
             split="train", chunk_size=4096, step_size=1024, shuffle=True, drop_last=True
