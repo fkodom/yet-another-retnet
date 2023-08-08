@@ -96,7 +96,9 @@ class CheckpointCallback:
         if self.best_loss is None:
             self.best_loss = loss
 
-        if loss <= self.best_loss:
+        fabric = state.fabric
+        # 'local_rank == 0' means this only happens for the main process
+        if fabric.local_rank == 0 and loss <= self.best_loss:
             checkpoint = ModelCheckpoint.from_training_state(state)
             self.best_loss = loss
             if self.best_path is not None:
@@ -106,6 +108,9 @@ class CheckpointCallback:
             )
             torch.save(checkpoint, self.best_path)
 
+        # All processes wait for main to finish saving the checkpoint.
+        fabric.barrier()
+
 
 def train_one_epoch(
     state: TrainingState,
@@ -113,6 +118,7 @@ def train_one_epoch(
     val_dataloader: DataLoader,
     log_frequency: int = 25,
 ) -> None:
+    state.current_epoch += 1
     fabric, model, optimizer = state.fabric, state.model, state.optimizer
     is_training = model.training
     model.train()
@@ -144,7 +150,7 @@ def train_one_epoch(
             val_loss = (val_loss * i + loss.item()) / (i + 1)
 
             if i % log_frequency == 0:
-                val_progbar.set_postfix_str(f"{val_loss:.4f}", refresh=False)
+                val_progbar.set_postfix_str(f"val_loss={val_loss:.4f}", refresh=False)
             val_progbar.update(1)
             progbar.update(1)
 
@@ -154,7 +160,6 @@ def train_one_epoch(
             f"loss={train_loss:.4f}, val_loss={val_loss:.4f}", refresh=False
         )
 
-        state.current_epoch += 1
         for callback in state.callbacks:
             callback(state, val_loss)
 
@@ -162,12 +167,14 @@ def train_one_epoch(
         model.train(mode=is_training)
 
 
-def main(
+def train(
+    retnet: RetNet,
+    train_dataloader: DataLoader,
+    val_dataloader: DataLoader,
     accelerator: str = "auto",
     strategy: str = "auto",
     precision: Optional[str] = None,
-    epochs: int = 25,
-    batch_size: int = 16,
+    epochs: int = 10,
     lr: float = 3e-4,
     log_frequency: int = 25,
 ):
@@ -179,9 +186,7 @@ def main(
         else:
             precision = "float32"
 
-    seed_everything(42)
     logger = TensorBoardLogger(root_dir="./")
-
     fabric = Fabric(
         accelerator=accelerator,
         strategy=strategy,
@@ -189,35 +194,15 @@ def main(
         loggers=[logger],
     )
     fabric.launch()
-    print(f"Using accelerator: {fabric.accelerator}")
     print(f"Experiment version: {logger.version}")
     print("-" * 40)
 
-    # Create a (fairly small) model and optimizer.
-    retnet = RetNet(num_tokens=TOKENIZER.n_vocab, dim_feedforward=1024, num_layers=4)
-    optimizer = torch.optim.AdamW(retnet.parameters(), lr=lr)
-    # Create the dataloaders, and setup with fabric.
-    train_dataloader = DataLoader(
-        project_gutenberg_top_100_datapipe(
-            split="train", chunk_size=4096, step_size=1024, shuffle=True, drop_last=True
-        ),
-        batch_size=batch_size,
-        collate_fn=collate_fn,
-        drop_last=True,
-    )
-    val_dataloader = DataLoader(
-        project_gutenberg_top_100_datapipe(
-            split="val", chunk_size=4096, step_size=1024
-        ),
-        batch_size=batch_size,
-        collate_fn=collate_fn,
-    )
     # Setup with fabric.
+    optimizer = torch.optim.AdamW(retnet.parameters(), lr=lr)
     retnet, optimizer = fabric.setup(retnet, optimizer)
     train_dataloader, val_dataloader = fabric.setup_dataloaders(
         train_dataloader, val_dataloader
     )
-
     # Construct a training state and run the training loop.
     state = TrainingState(
         fabric=fabric,
@@ -234,5 +219,60 @@ def main(
         )
 
 
+def main(
+    accelerator: str = "auto",
+    strategy: str = "auto",
+    precision: Optional[str] = None,
+    epochs: int = 10,
+    batch_size: int = 16,
+    lr: float = 3e-4,
+    log_frequency: int = 25,
+    seed: int = 42,
+):
+    seed_everything(seed)
+    # Create a (very small) model and dataloaders
+    retnet = RetNet(num_tokens=TOKENIZER.n_vocab, dim_feedforward=1024, num_layers=4)
+    train_dataloader = DataLoader(
+        project_gutenberg_top_100_datapipe(
+            split="train", chunk_size=4096, step_size=1024, shuffle=True, drop_last=True
+        ),
+        batch_size=batch_size,
+        collate_fn=collate_fn,
+        drop_last=True,
+    )
+    val_dataloader = DataLoader(
+        project_gutenberg_top_100_datapipe(
+            split="val", chunk_size=4096, step_size=1024
+        ),
+        batch_size=batch_size,
+        collate_fn=collate_fn,
+    )
+
+    train(
+        retnet=retnet,
+        train_dataloader=train_dataloader,
+        val_dataloader=val_dataloader,
+        accelerator=accelerator,
+        strategy=strategy,
+        precision=precision,
+        epochs=epochs,
+        lr=lr,
+        log_frequency=log_frequency,
+    )
+
+
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--accelerator", type=str, default="auto")
+    parser.add_argument("--strategy", type=str, default="auto")
+    parser.add_argument("--precision", type=str, default=None)
+    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--log_frequency", type=int, default=25)
+    parser.add_argument("--seed", type=int, default=42)
+    args = parser.parse_args()
+
     main()
