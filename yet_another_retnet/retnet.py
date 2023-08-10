@@ -24,7 +24,7 @@ class RetNetDecoderLayer(nn.Module):
         dropout: float = 0.1,
         activation: Union[ActivationString, Callable[[Tensor], Tensor]] = "swish",
         norm_first: bool = True,
-        layer_norm_eps: float = 1e-5,
+        layer_norm_eps: float = 1e-6,
         device: Optional[Union[torch.device, str]] = None,
         dtype: Optional[torch.dtype] = None,
     ) -> None:
@@ -161,7 +161,7 @@ class RetNet(nn.Module):
         activation: Union[ActivationString, Callable[[Tensor], Tensor]] = "swish",
         dim_feedforward: int = 2048,
         norm_first: bool = True,
-        layer_norm_eps: float = 1e-5,
+        layer_norm_eps: float = 1e-6,
         device: Optional[Union[torch.device, str]] = None,
         dtype: Optional[torch.dtype] = None,
     ) -> None:
