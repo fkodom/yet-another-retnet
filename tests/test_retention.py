@@ -2,7 +2,6 @@ from typing import Optional
 
 import pytest
 import torch
-from lightning import seed_everything
 from torch import Tensor
 
 from yet_another_retnet.retention import (
@@ -12,7 +11,6 @@ from yet_another_retnet.retention import (
     retention_recurrent,
 )
 
-seed_everything(42)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DTYPE = torch.float64
 # Set deterministic CUDA ops
