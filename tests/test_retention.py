@@ -2,6 +2,7 @@ from typing import Optional
 
 import pytest
 import torch
+from lightning import seed_everything
 from torch import Tensor
 
 from yet_another_retnet.retention import (
@@ -11,6 +12,7 @@ from yet_another_retnet.retention import (
     retention_recurrent,
 )
 
+seed_everything(42)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DTYPE = torch.float64
 # Set deterministic CUDA ops
@@ -34,17 +36,11 @@ def test_retention_chunkwise_forward():
 
 
 @torch.no_grad()
-# @pytest.mark.parametrize("batch_size", [2])
-# @pytest.mark.parametrize("num_heads", [2, 4])
-# @pytest.mark.parametrize("seq_length", [16])
-# @pytest.mark.parametrize("hidden_dim", [4, 8])
-# @pytest.mark.parametrize("chunk_size", [1, 4, 16])
-@pytest.mark.parametrize("batch_size", [1])
-@pytest.mark.parametrize("num_heads", [2])
-@pytest.mark.parametrize("seq_length", [4])
-@pytest.mark.parametrize("hidden_dim", [3])
-@pytest.mark.parametrize("chunk_size", [4])
-# @pytest.mark.parametrize("chunk_size", [1, 2, 4])
+@pytest.mark.parametrize("batch_size", [2])
+@pytest.mark.parametrize("num_heads", [2, 4])
+@pytest.mark.parametrize("seq_length", [16])
+@pytest.mark.parametrize("hidden_dim", [4, 8])
+@pytest.mark.parametrize("chunk_size", [1, 4, 16])
 def test_equivalent_formulations(
     batch_size: int,
     num_heads: int,
@@ -80,12 +76,6 @@ def test_equivalent_formulations(
         y_chunkwise[:, :, i : i + chunk_size], prev_state = retention_chunkwise(
             q, k, v, prev_state
         )
-    print(prev_state)
-    print(recurrent_state)
-    print("-" * 40)
-    print(y_recurrent)
-    print(y_chunkwise)
-    print()
 
     torch.testing.assert_close(y_parallel, y_chunkwise, rtol=1e-4, atol=1e-4)
     torch.testing.assert_close(recurrent_state, prev_state, rtol=1e-4, atol=1e-4)

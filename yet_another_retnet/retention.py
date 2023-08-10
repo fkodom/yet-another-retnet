@@ -72,24 +72,24 @@ def _build_decay_mask(
     return decay_gammas**distance
 
 
-def _build_chunkwise_decay_mask(
-    chunk_size: int,
-    decay_gammas: Tensor,
-    device: Optional[Union[torch.device, str]] = None,
-    dtype: Optional[torch.dtype] = None,
-) -> Tensor:
-    """The chunkwise decay mask is used in the chunkwise formulation of retention.
-    It is derived from the recurrent formulation -- we apply increasing amounts
-    of decay to the previous state, based on the position of each token in the
-    input chunk.  So, we add a 'sequence' dimension to the decay gammas, and
-    raise them to the power of the position of each token in the chunk.
+# def _build_chunkwise_decay_mask(
+#     chunk_size: int,
+#     decay_gammas: Tensor,
+#     device: Optional[Union[torch.device, str]] = None,
+#     dtype: Optional[torch.dtype] = None,
+# ) -> Tensor:
+#     """The chunkwise decay mask is used in the chunkwise formulation of retention.
+#     It is derived from the recurrent formulation -- we apply increasing amounts
+#     of decay to the previous state, based on the position of each token in the
+#     input chunk.  So, we add a 'sequence' dimension to the decay gammas, and
+#     raise them to the power of the position of each token in the chunk.
 
-    See: https://arxiv.org/pdf/2307.08621v3.pdf, Equation 7
-    """
-    chunk_pos = torch.arange(chunk_size, device=device, dtype=dtype)
-    chunk_pos = rearrange(chunk_pos, "n -> () n")
-    decay_gammas = rearrange(decay_gammas, "h -> h ()")
-    return decay_gammas**chunk_pos
+#     See: https://arxiv.org/pdf/2307.08621v3.pdf, Equation 7
+#     """
+#     chunk_pos = torch.arange(chunk_size, device=device, dtype=dtype)
+#     chunk_pos = rearrange(chunk_pos, "n -> () n")
+#     decay_gammas = rearrange(decay_gammas, "h -> h ()")
+#     return decay_gammas**chunk_pos
 
 
 def _build_position_thetas(
@@ -212,6 +212,13 @@ def retention_chunkwise(
         decay_gammas = _build_decay_gammas(
             num_heads=query.shape[1], device=query.device, dtype=query.dtype
         )
+    decay_mask = _build_decay_mask(
+        query_length=query.shape[2],
+        key_length=key.shape[2],
+        decay_gammas=decay_gammas,
+        device=query.device,
+        dtype=query.dtype,
+    )
 
     # einstein notation:
     # - b: batch_size
@@ -223,31 +230,28 @@ def retention_chunkwise(
     key = key / scale
 
     # intra-chunk (same as parallel retention)
-    decay_mask = _build_decay_mask(
-        query_length=query.shape[2],
-        key_length=key.shape[2],
-        decay_gammas=decay_gammas,
-        device=query.device,
-        dtype=query.dtype,
-    )
     similarity = einsum(query, key, "b h n d, b h s d -> b h n s")
     similarity = similarity * rearrange(decay_mask, "h n s -> () h n s")
     inner_retention = einsum(similarity, value, "b h n s, b h s d -> b h n d")
 
     # cross-chunk (derived from recurrent retention)
-    state = einsum(key, value, "b h n d1, b h n d2 -> b h d1 d2")
+    decay_gammas = rearrange(decay_gammas, "h -> () h () ()")
+    inner_pos = rearrange(
+        torch.arange(key.size(2), device=key.device, dtype=key.dtype) + 1,
+        "n -> () () n ()",
+    )
+    states = einsum(key, value, "b h n d1, b h n d2 -> b h n d1 d2")
+    state_decays = decay_gammas ** (key.size(2) - inner_pos)
+    state = einsum(states, state_decays, "b h n d1 d2, _ h n _ -> b h d1 d2")
+
     if prev_state is not None:
-        inner_pos = torch.arange(key.size(2), device=key.device, dtype=key.dtype) + 1
-        inner_pos = rearrange(inner_pos, "n -> () () n ()")
-        inner_decay = rearrange(decay_gammas, "h -> () h () ()") ** inner_pos
+        inner_decay = decay_gammas**inner_pos
         cross_retention = (
             einsum(query, prev_state, "b h n d1, b h d1 d2 -> b h n d2") * inner_decay
         )
-        chunk_decay = rearrange(decay_gammas, "h -> () h () ()") ** key.size(2)
+        chunk_decay = decay_gammas ** key.size(2)
         state = state + prev_state * chunk_decay
-
         retention = inner_retention + cross_retention
-
     else:
         retention = inner_retention
 
