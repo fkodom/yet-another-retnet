@@ -105,8 +105,26 @@ class RetNetDecoderLayer(nn.Module):
 
         return x, state
 
-    # TODO
-    # def forward_chunkwise
+    def forward_chunkwise(
+        self, x: Tensor, start_idx: int, prev_state: Optional[Tensor] = None
+    ) -> Tuple[Tensor, Tensor]:
+        def _retention_block(x: Tensor) -> Tuple[Tensor, Tensor]:
+            x, state = self.retention.forward_chunkwise(
+                x, x, x, start_idx=start_idx, prev_state=prev_state
+            )
+            return self.dropout(x), state
+
+        # retention block
+        if self.norm_first:
+            y, state = _retention_block(self.norm1(x))
+            x = x + y
+            x = x + self._feedforward_block(self.norm2(x))
+        else:
+            y, state = _retention_block(x)
+            x = x + self.norm1(y)
+            x = x + self.norm2(self._feedforward_block(x))
+
+        return x, state
 
     def forward(self, x: Tensor) -> Tensor:
         return self.forward_parallel(x)
@@ -143,8 +161,22 @@ class RetNetDecoder(nn.Module):
             states.append(state)
         return x, states
 
-    # TODO
-    # def forward_chunkwise
+    def forward_chunkwise(
+        self, x: Tensor, start_idx: int, prev_states: Sequence[Optional[Tensor]] = ()
+    ) -> Tuple[Tensor, List[Tensor]]:
+        if not prev_states:
+            prev_states = [None] * self.num_layers
+        elif len(prev_states) != len(self.layers):
+            raise ValueError(
+                f"Expected {len(self.layers)} previous states, got {len(prev_states)}"
+            )
+
+        states: List[Tensor] = []
+        for layer, prev_state in zip(self.layers, prev_states):
+            assert isinstance(layer, RetNetDecoderLayer)
+            x, state = layer.forward_chunkwise(x, start_idx, prev_state)
+            states.append(state)
+        return x, states
 
     def forward(self, x: Tensor) -> Tensor:
         return self.forward_parallel(x)
@@ -205,8 +237,15 @@ class RetNet(nn.Module):
         x = self.out(x)
         return x, states
 
-    # TODO
-    # def forward_chunkwise
+    def forward_chunkwise(
+        self, x: Tensor, start_idx: int, prev_states: Sequence[Optional[Tensor]] = ()
+    ) -> Tuple[Tensor, List[Tensor]]:
+        x = self.embedding(x)
+        x, states = self.decoder.forward_chunkwise(
+            x, start_idx=start_idx, prev_states=prev_states
+        )
+        x = self.out(x)
+        return x, states
 
     def forward(self, x: Tensor) -> Tensor:
         return self.forward_parallel(x)
