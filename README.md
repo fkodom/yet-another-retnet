@@ -281,8 +281,8 @@ When should you choose one formulation over the others?  Here is a general rule 
 * Parallel -> model training
 * Recurrent -> incremental token prediction
 * Chunkwise ->
-    a. model training -- if input sequences are very long, and parallel formulation is too memory intensive
-    b. encoding long prompts -- if input prompts are very long, you can chunkwise encode them more efficiently than the recurrent formulation.  The state returned from chunkwise formulation is the same as in recurrent formulation.  So, once the prompt is chunkwise encoded, use the recurrent formulation to generate individual tokens.
+    1. model training -- if training inputs are very long, and parallel formulation is too memory intensive
+    2. encoding long prompts -- if inference *prompts* are very long, chunkwise encoding is more efficient than the recurrent formulation.  The state returned from chunkwise formulation is the same as in recurrent formulation.  So, once the prompt is chunkwise encoded, use recurrent formulation to generate new tokens.
 
 
 ## Citations
