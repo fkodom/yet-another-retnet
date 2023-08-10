@@ -27,7 +27,7 @@ A simple but robust PyTorch implementation of RetNet from [Retentive Network: A 
 - [x] Release stable version on PyPI.
     - [x] Prerelease
     - [x] Stable
-- [ ] Equivalent **chunkwise** retention method.
+- [x] Equivalent **chunkwise** retention method.
 - [ ] Basic training example for language modeling.
 
 
