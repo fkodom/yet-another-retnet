@@ -28,7 +28,7 @@ A simple but robust PyTorch implementation of RetNet from [Retentive Network: A 
     - [x] Prerelease
     - [x] Stable
 - [x] Equivalent **chunkwise** retention method.
-- [ ] Basic training example for language modeling.
+- [x] Basic training example for language modeling.  See: [train_project_gutenberg.py](./scripts/train_project_gutenberg.py)
 
 
 ## Install
@@ -37,6 +37,11 @@ PyPI:
 ```bash
 pip install yet-another-retnet
 ```
+
+> **NOTE**: To run the [example training script](./scripts/train_project_gutenberg.py), you will need to include the `[train]` extra package:
+> ```bash
+> pip install yet-another-retnet[train]
+> ```
 
 From source:
 ```bash
