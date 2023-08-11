@@ -304,8 +304,13 @@ def main(
     eval_max_tokens: int = 1024,
 ):
     seed_everything(seed)
-    # Create a (fairly small) model and dataloaders
-    retnet = RetNet(num_tokens=TOKENIZER.n_vocab)
+    # Create a (relatively small) model and dataloaders
+    retnet = RetNet(
+        num_tokens=TOKENIZER.n_vocab,
+        d_model=768,
+        nhead=8,
+        num_layers=12,
+    )
     if model_checkpoint is not None:
         retnet.load_state_dict(ModelCheckpoint.load(model_checkpoint).state_dict)
 

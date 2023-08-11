@@ -36,6 +36,11 @@ test = [
     "pytest",
     "pytest-cov",
     "ruff",
+    "types-requests",
+]
+train = [
+    "lightning~=2.0.0",
+    "torchdata>=0.6.0",
 ]
 
 
