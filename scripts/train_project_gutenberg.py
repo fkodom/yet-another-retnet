@@ -1,6 +1,17 @@
 import os
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Literal,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import tiktoken
 import torch
@@ -15,6 +26,7 @@ from yet_another_retnet.utils.gutenberg import project_gutenberg_top_100_datapip
 
 torch.set_float32_matmul_precision("medium")
 TOKENIZER = tiktoken.get_encoding("gpt2")
+EVAL_PROMPT = "A Lannister always pays his debts."
 
 
 def collate_fn(
@@ -219,7 +231,66 @@ def train(
         )
 
 
+def generate(
+    retnet: RetNet,
+    prompt: str,
+    prompt_chunk_size: Optional[int] = None,
+    max_new_tokens: int = 4096,
+    stop_tokens: Sequence[str] = (),
+    top_k: int = 10,
+    temperature: float = 1.0,
+    seed: int = 42,
+) -> Iterator[str]:
+    seed_everything(seed)
+    device = next(iter(retnet.parameters())).device
+    is_training = retnet.training
+    retnet.eval()
+
+    # Tokenize the prompt and convert to a tensor.
+    tokenized = TOKENIZER.encode(prompt)
+    x = torch.as_tensor(tokenized, dtype=torch.long, device=device).unsqueeze_(0)
+
+    if not prompt_chunk_size:
+        prompt_chunk_size = x.size(1)
+
+    prev_states: List[Optional[Tensor]] = [None] * retnet.num_layers
+    start_idx: int = 0
+    for start_idx in range(0, x.size(1), prompt_chunk_size):
+        y, prev_states = retnet.forward_chunkwise(
+            x, start_idx=start_idx, prev_states=prev_states
+        )
+        y = y[:, -1]
+
+    # Generate tokens until we reach the maximum number of tokens or a stop token.
+    for i in range(max_new_tokens):
+        probs: Tensor = torch.softmax(y.squeeze() / max(temperature, 1e-8), dim=-1)
+        # Get top-k tokens, renormalize their probabilities, and weighted sample.
+        tokens: Tensor  # for mypy
+        probs, tokens = probs.topk(k=top_k, dim=-1)
+        probs /= probs.sum()
+
+        # Take weighted random sample from the top-k tokens.
+        sampled_idx: int = torch.multinomial(probs, num_samples=1).item()  # type: ignore
+        token: int = tokens[sampled_idx].item()  # type: ignore
+        tokenized.append(token)
+        yield TOKENIZER.decode(tokenized)
+
+        token_str: str = TOKENIZER.decode([token])
+        if token_str in stop_tokens:
+            break
+        elif i < (max_new_tokens - 1):
+            start_idx += 1
+            x = torch.as_tensor([token], dtype=torch.long, device=device)
+            y, prev_states = retnet.forward_recurrent(
+                x, start_idx, prev_states=prev_states
+            )
+
+    # Restore the model's original training state.
+    retnet.train(mode=is_training)
+
+
 def main(
+    model_checkpoint: Optional[str] = None,
     accelerator: str = "auto",
     strategy: str = "auto",
     precision: Optional[str] = None,
@@ -228,51 +299,74 @@ def main(
     lr: float = 3e-4,
     log_frequency: int = 25,
     seed: int = 42,
+    eval_only: bool = False,
+    eval_prompt: str = EVAL_PROMPT,
+    eval_max_tokens: int = 1024,
 ):
     seed_everything(seed)
-    # Create a (small) model and dataloaders
+    # Create a (fairly small) model and dataloaders
     retnet = RetNet(num_tokens=TOKENIZER.n_vocab)
-    train_dataloader = DataLoader(
-        project_gutenberg_top_100_datapipe(
-            split="train", chunk_size=4096, step_size=1024, shuffle=True, drop_last=True
-        ),
-        batch_size=batch_size,
-        collate_fn=collate_fn,
-        drop_last=True,
-    )
-    val_dataloader = DataLoader(
-        project_gutenberg_top_100_datapipe(
-            split="val", chunk_size=4096, step_size=1024
-        ),
-        batch_size=batch_size,
-        collate_fn=collate_fn,
-    )
+    if model_checkpoint is not None:
+        retnet.load_state_dict(ModelCheckpoint.load(model_checkpoint).state_dict)
 
-    train(
-        retnet=retnet,
-        train_dataloader=train_dataloader,
-        val_dataloader=val_dataloader,
-        accelerator=accelerator,
-        strategy=strategy,
-        precision=precision,
-        epochs=epochs,
-        lr=lr,
-        log_frequency=log_frequency,
-    )
+    if not eval_only:
+        train_dataloader = DataLoader(
+            project_gutenberg_top_100_datapipe(
+                split="train",
+                chunk_size=4096,
+                step_size=1024,
+                shuffle=True,
+                drop_last=True,
+            ),
+            batch_size=batch_size,
+            collate_fn=collate_fn,
+            drop_last=True,
+        )
+        val_dataloader = DataLoader(
+            project_gutenberg_top_100_datapipe(
+                split="val", chunk_size=4096, step_size=1024
+            ),
+            batch_size=batch_size,
+            collate_fn=collate_fn,
+        )
+
+        train(
+            retnet=retnet,
+            train_dataloader=train_dataloader,
+            val_dataloader=val_dataloader,
+            accelerator=accelerator,
+            strategy=strategy,
+            precision=precision,
+            epochs=epochs,
+            lr=lr,
+            log_frequency=log_frequency,
+        )
+
+    # Generate some text
+    prev_output: str = ""
+    for output in generate(retnet, eval_prompt, max_new_tokens=eval_max_tokens):
+        # Return to the start of the line and print the output (no newline)
+        print(output[len(prev_output) :], end="", flush=True)
+        prev_output = output
+    print()
 
 
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
+    parser.add_argument("--model-checkpoint", type=str, default=None)
     parser.add_argument("--accelerator", type=str, default="auto")
     parser.add_argument("--strategy", type=str, default="auto")
     parser.add_argument("--precision", type=str, default=None)
     parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--log_frequency", type=int, default=25)
+    parser.add_argument("--log-frequency", type=int, default=25)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--eval-only", action="store_true")
+    parser.add_argument("--eval-prompt", type=str, default=EVAL_PROMPT)
+    parser.add_argument("--eval-max-tokens", type=int, default=1024)
     args = parser.parse_args()
 
-    main()
+    main(**vars(args))
