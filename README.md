@@ -13,7 +13,7 @@ A simple but robust PyTorch implementation of RetNet from [Retentive Network: A 
 
 ### TODO
 
-- [x] Equivalent **parallel** and **recursive** retention methods.  See: [retention.py](yet_another_retnet/retention.py)
+- [x] Equivalent **parallel** and **recurrent** retention methods.  See: [retention.py](yet_another_retnet/retention.py)
 - [x] Recurrent position embedding implementation.
 - [x] `MultiScaleRetention` module.  See: [retention.py](yet_another_retnet/retention.py)
 - [x] Make relative position embeddings for `MultiScaleRetention` **optional**.
@@ -27,7 +27,7 @@ A simple but robust PyTorch implementation of RetNet from [Retentive Network: A 
 - [x] Release stable version on PyPI.
     - [x] Prerelease
     - [x] Stable
-- [ ] Equivalent **chunkwise** retention method.
+- [x] Equivalent **chunkwise** retention method.
 - [ ] Basic training example for language modeling.
 
 
@@ -102,7 +102,7 @@ retnet = RetNet(
 ).eval()  # Important for reproducibility!
 ```
 
-Equivalent parallel and recurrent usage:
+Equivalent parallel, recurrent, and chunkwise usage:
 
 ```python
 import torch
@@ -124,18 +124,30 @@ prev_states = []  # cache layer states after each step
 for idx in range(16):  # seq_len
     out, prev_states = retnet.forward_recurrent(x[:, idx], idx, prev_states)
     outputs.append(out)
-y_recursive = torch.stack(outputs, dim=1)
+y_recurrent = torch.stack(outputs, dim=1)
+
+# Chunkwise usage
+outputs = []  # container for collecting chunk-wise outputs
+prev_states = []  # cache layer states after each step
+chunk_size = 4  # number of tokens in each chunk
+for idx in range(0, 16, chunk_size):
+    out, prev_states = retnet.forward_chunkwise(
+        x[:, idx : idx + chunk_size], idx, prev_states
+    )
+    outputs.append(out)
+y_chunkwise = torch.cat(outputs, dim=1)
 
 # Check that outputs are equal
-torch.testing.assert_close(y_parallel, y_recursive)
+torch.testing.assert_close(y_parallel, y_recurrent)
+torch.testing.assert_close(y_parallel, y_chunkwise)
 ```
 
-**NOTE**: There is some floating point error accumulation in the recurrent formulation, which I believe is less pronounced in the parallel formulation. Especially for untrained models (when activations are very large), the two outputs may not match *exactly*.  The difference should still be very small -- on the order of 1e-5 or less.
+**NOTE**: There is some floating point error accumulation in the recurrent formulation, which I believe is less pronounced in the parallel formulation. Especially for untrained models (when activations are very large), the two outputs may not match *exactly*.  The absolute difference should still be very small -- on the order of 1e-5 or less.
 
 
 ### MultiScaleRetention
 
-Equivalent parallel and recurrent usage:
+Equivalent parallel, recurrent, and chunkwise usage:
 
 ```python
 import torch
@@ -150,18 +162,34 @@ q = k = v = torch.randn(1, 16, 32, device="cuda")
 # Parallel retention
 y_parallel, _ = mhr.forward_parallel(q, k, v)
 
-# Recursive retention
+# Recurrent retention
 outputs = []
 prev_state = None
-for idx in range(32):
+for idx in range(16):
     out, prev_state = mhr.forward_recurrent(
         q[:, idx], k[:, idx], v[:, idx], idx, prev_state
     )
     outputs.append(out)
-y_recursive = torch.stack(outputs, dim=1)
+y_recurrent = torch.stack(outputs, dim=1)
+
+# Chunkwise retention
+outputs = []
+prev_state = None
+chunk_size = 4
+for idx in range(0, 16, chunk_size):
+    out, prev_state = mhr.forward_chunkwise(
+        q[:, idx : idx + chunk_size],
+        k[:, idx : idx + chunk_size],
+        v[:, idx : idx + chunk_size],
+        idx,
+        prev_state,
+    )
+    outputs.append(out)
+y_chunkwise = torch.cat(outputs, dim=1)
 
 # Check that outputs are equal
-torch.testing.assert_close(y_parallel, y_recursive)
+torch.testing.assert_close(y_parallel, y_recurrent)
+torch.testing.assert_close(y_parallel, y_chunkwise)
 ```
 
 **NOTE**: The `MultiScaleRetention` that is described in the paper includes an
@@ -188,7 +216,11 @@ Similar to the example above, but head projections and positional updates are no
 ```python
 import torch
 
-from yet_another_retnet.retention import retention_parallel, retention_recurrent
+from yet_another_retnet.retention import (
+    retention_chunkwise,
+    retention_parallel,
+    retention_recurrent,
+)
 
 # input shape: (batch_size, num_heads, seq_len, head_dim)
 q = k = v = torch.randn(1, 4, 32, 8, device="cuda")
@@ -196,13 +228,31 @@ q = k = v = torch.randn(1, 4, 32, 8, device="cuda")
 # Parallel retention
 y_parallel, _ = retention_parallel(q, k, v)
 
-# Recursive retention
+# Recurrent retention
 outputs = []
 prev_state = None
 for i in range(32):
     out, prev_state = retention_recurrent(q[:, :, i], k[:, :, i], v[:, :, i], prev_state)
     outputs.append(out)
-y_recursive = torch.stack(outputs, dim=2)
+y_recurrent = torch.stack(outputs, dim=2)
+
+# Chunkwise retention
+outputs = []
+prev_state = None
+chunk_size = 4
+for i in range(0, 32, chunk_size):
+    out, prev_state = retention_chunkwise(
+        q[:, :, i : i + chunk_size],
+        k[:, :, i : i + chunk_size],
+        v[:, :, i : i + chunk_size],
+        prev_state,
+    )
+    outputs.append(out)
+y_chunkwise = torch.cat(outputs, dim=2)
+
+# Check that outputs are equal
+torch.testing.assert_close(y_parallel, y_recurrent)
+torch.testing.assert_close(y_parallel, y_chunkwise)
 ```
 
 
@@ -222,6 +272,17 @@ From this repo:
     <img src="doc/inference-memory.png" alt="retention-dual-forms" width="300"/>
     <img src="doc/inference-throughput.png" alt="retention-benchmarks" width="300"/>
 </p>
+
+
+## Parallel vs. Recurrent vs. Chunkwise
+
+When should you choose one formulation over the others?  Here is a general rule of thumb:
+
+* Parallel -> model training
+* Recurrent -> incremental token prediction
+* Chunkwise ->
+    1. model training -- if training inputs are very long, and parallel formulation is too memory intensive
+    2. encoding long prompts -- if inference *prompts* are very long, chunkwise encoding is more efficient than the recurrent formulation.  The state returned from chunkwise formulation is the same as in recurrent formulation.  So, once the prompt is chunkwise encoded, use recurrent formulation to generate new tokens.
 
 
 ## Citations
