@@ -13,7 +13,7 @@ ActivationString = Literal["swish", "gelu", "relu"]
 def _get_activation_fn(activation: str) -> Callable[[Tensor], Tensor]:
     """Return an activation function given a string"""
     if activation == "swish":
-        return F.relu
+        return F.silu
     elif activation == "gelu":
         return F.gelu
     elif activation == "relu":
