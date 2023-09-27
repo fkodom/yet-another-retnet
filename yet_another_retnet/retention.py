@@ -331,7 +331,7 @@ class MultiScaleRetention(nn.Module):
         )
         self.group_norm = nn.GroupNorm(
             num_groups=num_heads,
-            num_channels=num_heads,
+            num_channels=embed_dim,
             affine=False,
             eps=group_norm_eps,
             device=device,
@@ -417,11 +417,11 @@ class MultiScaleRetention(nn.Module):
         # we fold the sequence dimension into the batch dimension.  Otherwise,
         # normalization would be applied over the entire input sequence.
         batch_size = retention.size(0)
-        retention = rearrange(retention, "b h n d -> (b n) h d")
+        retention = rearrange(retention, "b h n d -> (b n) (h d)")
         retention = F.dropout(retention, p=self.dropout, training=self.training)
         retention = self.group_norm(retention)
         # Unfold 'n' from the batch dimension, and fold 'h' back into the embed dim.
-        retention = rearrange(retention, "(b n) h d -> b n (h d)", b=batch_size)
+        retention = rearrange(retention, "(b n) e -> b n e", b=batch_size)
 
         # NOTE: Unlike multihead attention, the retention paper applies a "swish"
         # gate to increase the non-linear capacity of the model.  (IMO this is likely
@@ -473,9 +473,9 @@ class MultiScaleRetention(nn.Module):
         # Apply retention then group norm.
         retention, state = retention_recurrent(q, k, v, prev_state=prev_state)
         retention = F.dropout(retention, p=self.dropout, training=self.training)
-        retention = self.group_norm(retention)
         # Fold heads back into the embedding dimension.
-        retention = rearrange(retention, "b h d -> b (h d)")
+        retention = rearrange(retention,"b h d -> b (h d)")
+        retention = self.group_norm(retention)
 
         # NOTE: Unlike multihead attention, the retention paper applies a "swish"
         # gate to increase the non-linear capacity of the model.  (IMO this is likely
@@ -542,11 +542,11 @@ class MultiScaleRetention(nn.Module):
         # we fold the sequence dimension into the batch dimension.  Otherwise,
         # normalization would be applied over the entire input sequence.
         batch_size = retention.size(0)
-        retention = rearrange(retention, "b h n d -> (b n) h d")
+        retention = rearrange(retention, "b h n d -> (b n) (h d)")
         retention = F.dropout(retention, p=self.dropout, training=self.training)
         retention = self.group_norm(retention)
         # Unfold 'n' from the batch dimension, and fold 'h' back into the embed dim.
-        retention = rearrange(retention, "(b n) h d -> b n (h d)", b=batch_size)
+        retention = rearrange(retention, "(b n) e -> b n e", b=batch_size)
 
         # NOTE: Unlike multihead attention, the retention paper applies a "swish"
         # gate to increase the non-linear capacity of the model.  (IMO this is likely
