@@ -2,25 +2,25 @@
 requires = ["setuptools", "setuptools-scm"]
 
 [project]
-name = "yet-another-retnet"
 authors = [
-    {name = "Frank Odom", email = "fodom@plainsight.ai"},
+  {name = "Frank Odom", email = "fodom@plainsight.ai"},
+]
+classifiers = ["Programming Language :: Python :: 3"]
+dependencies = [
+  # TODO: Check version ranges and pin dependencies
+  "einops",
+  "torch>=1.8",
 ]
 description = "yet-another-retnet"
+dynamic = ["version", "readme"] # NOTE: Must be in sync with [tool.setuptools.dynamic] below
 license = {text = "MIT"}
-dynamic = ["version", "readme"]  # NOTE: Must be in sync with [tool.setuptools.dynamic] below
-dependencies = [
-    # TODO: Check version ranges and pin dependencies
-    "einops",
-    "torch>=1.8",
-]
+name = "yet-another-retnet"
 requires-python = ">=3.8"
-classifiers = ["Programming Language :: Python :: 3"]
 
 [tool.setuptools.dynamic]
 # NOTE: Must be in sync with 'project.dynamic' above
-version = {attr = "yet_another_retnet.VERSION"}
 readme = {file = ["README.md"], content-type = "text/markdown"}
+version = {attr = "yet_another_retnet.VERSION"}
 
 [tool.setuptools.packages.find]
 exclude = ["tests"]
@@ -28,23 +28,23 @@ exclude = ["tests"]
 # extra packages (e.g. pip install .[test])
 [project.optional-dependencies]
 test = [
-    "black",
-    "kaleido",
-    "mypy",
-    "pre-commit",
-    "plotly",
-    "pytest",
-    "pytest-cov",
-    "ruff",
-    "types-requests",
+  "black",
+  "kaleido",
+  "mypy",
+  "pre-commit",
+  "plotly",
+  "pytest",
+  "pytest-cov",
+  "ruff",
+  "types-requests",
 ]
 train = [
-    "lightning~=2.0.0",
-    "tiktoken~=0.4.0",
-    "torchdata>=0.6.0",
-    "tqdm",
+  "lightning~=2.0.0",
+  "tensorboard~=2.14.0",
+  "tiktoken~=0.4.0",
+  "torchdata>=0.6.0",
+  "tqdm",
 ]
-
 
 # ----- Linting, Formatting, and Typing -----
 
@@ -52,47 +52,47 @@ train = [
 line-length = 88
 
 [tool.mypy]
-files = "yet_another_retnet/"
 check_untyped_defs = "true"
+files = "yet_another_retnet/"
 ignore_missing_imports = "true"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
 addopts = "--cov --cov-report term-missing --cov-fail-under 80"
 filterwarnings = "ignore:.*.:DeprecationWarning"
+testpaths = ["tests"]
 
 [tool.ruff]
 ignore = ["B905", "E501"]
 line-length = 88
 select = [
-    "B",
-    "C",
-    "E",
-    "F",
-    "I",
-    "W"
+  "B",
+  "C",
+  "E",
+  "F",
+  "I",
+  "W",
 ]
 # Exclude a variety of commonly ignored directories.
 exclude = [
-    ".bzr",
-    ".direnv",
-    ".eggs",
-    ".git",
-    ".hg",
-    ".mypy_cache",
-    ".nox",
-    ".pants.d",
-    ".ruff_cache",
-    ".svn",
-    ".tox",
-    ".venv",
-    "__pypackages__",
-    "_build",
-    "buck-out",
-    "build",
-    "dist",
-    "node_modules",
-    "venv",
+  ".bzr",
+  ".direnv",
+  ".eggs",
+  ".git",
+  ".hg",
+  ".mypy_cache",
+  ".nox",
+  ".pants.d",
+  ".ruff_cache",
+  ".svn",
+  ".tox",
+  ".venv",
+  "__pypackages__",
+  "_build",
+  "buck-out",
+  "build",
+  "dist",
+  "node_modules",
+  "venv",
 ]
 
 [tool.ruff.mccabe]
