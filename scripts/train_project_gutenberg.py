@@ -259,7 +259,7 @@ def generate(
     prev_states: List[Optional[Tensor]] = [None] * retnet.num_layers
     start_idx: int = 0
     for start_idx in range(0, x.size(1), prompt_chunk_size):
-        y, prev_states = retnet.forward_chunkwise(
+        y, prev_states = retnet.forward_chunkwise(  # type: ignore
             x, start_idx=start_idx, prev_states=prev_states
         )
         y = y[:, -1]
@@ -284,7 +284,7 @@ def generate(
         elif i < (max_new_tokens - 1):
             start_idx += 1
             x = torch.as_tensor([token], dtype=torch.long, device=device)
-            y, prev_states = retnet.forward_recurrent(
+            y, prev_states = retnet.forward_recurrent(  # type: ignore
                 x, start_idx, prev_states=prev_states
             )
 
