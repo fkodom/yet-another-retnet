@@ -199,7 +199,7 @@ def train(
             version, _ = torch.cuda.get_device_capability()
             precision = "bf16-mixed" if version >= 8 else "16-mixed"
         else:
-            precision = "float32"
+            precision = "32-true"
 
     logger = TensorBoardLogger(root_dir="./")
     fabric = Fabric(
