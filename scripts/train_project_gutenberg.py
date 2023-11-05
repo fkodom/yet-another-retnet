@@ -196,7 +196,7 @@ def train(
             version, _ = torch.cuda.get_device_capability()
             precision = "bf16-mixed" if version >= 8 else "16-mixed"
         else:
-            precision = "float32"
+            precision = "32-true"
 
     logger = TensorBoardLogger(root_dir="./")
     fabric = Fabric(
@@ -315,6 +315,7 @@ def main(
         retnet.load_state_dict(ModelCheckpoint.load(model_checkpoint).state_dict)
 
     if not eval_only:
+        batch_size = batch_size // torch.cuda.device_count()
         train_dataloader = DataLoader(
             project_gutenberg_top_100_datapipe(
                 split="train",
