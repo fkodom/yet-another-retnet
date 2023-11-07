@@ -12,8 +12,12 @@ from yet_another_retnet.utils.profile import profile
 NUM_TOKENS = 10000
 BATCH_SIZE = 4
 SEQ_LENGTHS = [2048, 3072, 4096, 5120, 6144, 7168, 8192]
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-DTYPE = torch.float16
+if torch.cuda.is_available():
+    DEVICE = torch.device("cuda")
+    DTYPE = torch.float16
+else:
+    DEVICE = torch.device("cpu")
+    DTYPE = torch.float32
 
 
 class TransformerLM(nn.Module):
@@ -154,44 +158,46 @@ if __name__ == "__main__":
     retnet = retnet_1_3b(NUM_TOKENS, device=DEVICE, dtype=DTYPE).eval()
     transformer = transformer_1_3b(NUM_TOKENS, device=DEVICE, dtype=DTYPE).eval()
 
-    retnet_footprints, transformer_footprints = measure_inference_memory(
-        retnet, transformer, seq_lengths=SEQ_LENGTHS
-    )
+    if torch.cuda.is_available():
+        retnet_footprints, transformer_footprints = measure_inference_memory(
+            retnet, transformer, seq_lengths=SEQ_LENGTHS
+        )
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=SEQ_LENGTHS,
+                y=retnet_footprints,
+                name="RetNet",
+                mode="lines+markers",
+                line={"color": "blue"},
+                marker={"color": "blue"},
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=SEQ_LENGTHS,
+                y=transformer_footprints,
+                name="Transformer",
+                mode="lines+markers",
+                line={"color": "red"},
+                marker={"color": "red"},
+            )
+        )
+        fig.update_layout(
+            title="Inference Memory Footprint",
+            xaxis_title="Sequence Length",
+            yaxis_title="GPU Memory (GiB)",
+            xaxis={"tickmode": "array", "tickvals": SEQ_LENGTHS},
+            # place legend at center-left
+            legend={"x": 0.1, "y": 0.5},
+        )
+        fig.write_image(os.path.join("doc", "inference-memory.png"))
+    else:
+        print("Skipping GPU memory profiling, because CUDA is not available.")
+
     retnet_throughputs, transformer_throughputs = benchmark_inference_throughput(
         retnet, transformer, seq_lengths=SEQ_LENGTHS
     )
-
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=SEQ_LENGTHS,
-            y=retnet_footprints,
-            name="RetNet",
-            mode="lines+markers",
-            line={"color": "blue"},
-            marker={"color": "blue"},
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=SEQ_LENGTHS,
-            y=transformer_footprints,
-            name="Transformer",
-            mode="lines+markers",
-            line={"color": "red"},
-            marker={"color": "red"},
-        )
-    )
-    fig.update_layout(
-        title="Inference Memory Footprint",
-        xaxis_title="Sequence Length",
-        yaxis_title="GPU Memory (GiB)",
-        xaxis={"tickmode": "array", "tickvals": SEQ_LENGTHS},
-        # place legend at center-left
-        legend={"x": 0.1, "y": 0.5},
-    )
-    fig.write_image(os.path.join("doc", "inference-memory.png"))
-
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
