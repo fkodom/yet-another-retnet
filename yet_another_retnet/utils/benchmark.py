@@ -37,7 +37,9 @@ def benchmark(
             "args": args,
             "kwargs": kwargs,
             "synchronize": (
-                torch.cuda.synchronize if torch.cuda.is_available() else (lambda: None)
+                torch.cuda.synchronize
+                if torch.cuda.is_available()
+                else (lambda: None)  # type: ignore
             ),
         },
     )
