@@ -216,9 +216,9 @@ def retention_chunkwise(
         torch.arange(key.size(2), device=key.device, dtype=key.dtype) + 1,
         "n -> () () n ()",
     )
-    states = einsum(key, value, "b h n d1, b h n d2 -> b h n d1 d2")
     state_decays = decay_gammas ** (key.size(2) - inner_pos)
-    state = einsum(states, state_decays, "b h n d1 d2, _ h n _ -> b h d1 d2")
+    discounted_key = einsum(key, state_decays, 'b h n d, _ h n _ -> b h n d')
+    state = einsum(discounted_key, value, 'b h n d1, b h n d2 -> b h d1 d2')
     if prev_state is not None:
         # Update internal state to return to the user
         chunk_decay = decay_gammas ** key.size(2)
