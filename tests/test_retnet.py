@@ -31,6 +31,7 @@ def test_retnet_forward_recurrent():
 @pytest.mark.parametrize("batch_size", [2])
 @pytest.mark.parametrize("seq_length", [8])
 @pytest.mark.parametrize("chunk_size", [1, 4, 8])
+@pytest.mark.parametrize("norm_first", [True, False])
 def test_retnet_equivalent_formulations(
     num_tokens: int,
     d_model: int,
@@ -39,6 +40,7 @@ def test_retnet_equivalent_formulations(
     batch_size: int,
     seq_length: int,
     chunk_size: int,
+    norm_first: bool,
 ):
     size = (batch_size, seq_length)
     x = torch.randint(0, num_tokens, size=size, device=DEVICE)
@@ -47,6 +49,7 @@ def test_retnet_equivalent_formulations(
         d_model=d_model,
         nhead=nhead,
         num_layers=num_layers,
+        norm_first=norm_first,
         device=DEVICE,
         dtype=DTYPE,
     ).eval()

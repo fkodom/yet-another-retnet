@@ -12,7 +12,7 @@ from yet_another_retnet.retention import (
 )
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-DTYPE = torch.float64
+DTYPE = torch.float32
 # Set deterministic CUDA ops
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
@@ -95,18 +95,26 @@ def test_multiscale_retention_forward_recurrent():
 @pytest.mark.parametrize("seq_length", [8])
 @pytest.mark.parametrize("embed_dim", [16, 32])
 @pytest.mark.parametrize("chunk_size", [1, 4, 16])
+@pytest.mark.parametrize("activation", ["swish", "relu", "gelu"])
 def test_equivalent_multiscale_formulations(
     batch_size: int,
     num_heads: int,
     seq_length: int,
     embed_dim: int,
     chunk_size: int,
+    activation: str,
 ):
     size = (batch_size, seq_length, embed_dim)
     query = torch.randn(*size, device=DEVICE, dtype=DTYPE)
     key = torch.randn(*size, device=DEVICE, dtype=DTYPE)
     value = torch.randn(*size, device=DEVICE, dtype=DTYPE)
-    mhr = MultiScaleRetention(embed_dim, num_heads, device=DEVICE, dtype=DTYPE).eval()
+    mhr = MultiScaleRetention(
+        embed_dim,
+        num_heads,
+        activation=activation,
+        device=DEVICE,
+        dtype=DTYPE,
+    ).eval()
 
     y_parallel, _ = mhr.forward_parallel(query, key, value)
 
