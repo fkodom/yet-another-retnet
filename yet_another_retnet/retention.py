@@ -217,8 +217,8 @@ def retention_chunkwise(
         "n -> () () n ()",
     )
     state_decays = decay_gammas ** (key.size(2) - inner_pos)
-    discounted_key = einsum(key, state_decays, 'b h n d, _ h n _ -> b h n d')
-    state = einsum(discounted_key, value, 'b h n d1, b h n d2 -> b h d1 d2')
+    discounted_key = einsum(key, state_decays, "b h n d, _ h n _ -> b h n d")
+    state = einsum(discounted_key, value, "b h n d1, b h n d2 -> b h d1 d2")
     if prev_state is not None:
         # Update internal state to return to the user
         chunk_decay = decay_gammas ** key.size(2)
@@ -495,7 +495,9 @@ class MultiScaleRetention(nn.Module):
         if self.relative_position:
             # global (cross-chunk) + intra-chunk relative position embedding
             assert self.thetas is not None
-            indices = torch.arange(start_idx, start_idx + q.size(2), device=q.device, dtype=q.dtype)
+            indices = torch.arange(
+                start_idx, start_idx + q.size(2), device=q.device, dtype=q.dtype
+            )
             indices = rearrange(indices, "n -> () () n ()")
             thetas = rearrange(self.thetas, "d -> () () () d")
             angles = indices * thetas
