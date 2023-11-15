@@ -65,15 +65,17 @@ def _build_decay_mask(
     query_pos = torch.arange(query_length, device=device, dtype=dtype).unsqueeze_(-1)
     key_pos = torch.arange(key_length, device=device, dtype=dtype).unsqueeze_(0)
     distance = torch.abs(query_pos - key_pos)
-    # Set the upper-triangular distances to infinity, so that only *past* keys
-    # can affect the current query.  (Setting distance to infinity ensures that
-    # the decay matrix is 0 for those positions, since x^(inf) = 0 when -1 < x < 1.
-    distance_mask = torch.ones_like(distance, dtype=torch.bool).triu_(diagonal=1)
-    distance = distance.masked_fill_(distance_mask, float("inf"))
 
     distance = rearrange(distance, "n s -> () n s")
     decay_gammas = rearrange(decay_gammas, "h -> h () ()")
-    return decay_gammas**distance
+    # NOTE: Keep only the lower-triangular elements (including the diagonal), so that
+    # *future* keys cannot affect the current query. The .tril() method is not yet
+    # implemented for bfloat16 dtypes, so we use .masked_fill_() instead,
+    # which is slightly slower.
+    # Thanks to @Doraemonzzz for catching this bug!
+    decay_mask = decay_gammas**distance
+    future_mask = torch.ones_like(decay_mask, dtype=torch.bool).triu_(diagonal=1)
+    return decay_mask.masked_fill_(future_mask, 0)
 
 
 def _build_position_thetas(
