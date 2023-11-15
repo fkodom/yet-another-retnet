@@ -72,6 +72,7 @@ def _build_decay_mask(
     # *future* keys cannot affect the current query. The .tril() method is not yet
     # implemented for bfloat16 dtypes, so we use .masked_fill_() instead,
     # which is slightly slower.
+    # Thanks to @Doraemonzzz for catching this bug!
     decay_mask = decay_gammas**distance
     future_mask = torch.ones_like(decay_mask, dtype=torch.bool).triu_(diagonal=1)
     return decay_mask.masked_fill_(future_mask, 0)
