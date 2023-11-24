@@ -1,9 +1,13 @@
 import random
+from pathlib import Path
 from typing import Generator, List, Literal, Optional
 
 import requests
+from torch.hub import get_dir
 from torchdata.datapipes.iter import IterableWrapper, IterDataPipe
 
+CACHE_DIR = Path(get_dir()) / "gutenberg"
+CACHE_DIR.mkdir(exist_ok=True)
 GUTENBERG_TOP_100_URLS = [
     # Romeo and Juliet by William Shakespeare
     "https://www.gutenberg.org/ebooks/1513.txt.utf-8",
@@ -240,16 +244,25 @@ class GutenbergEBookLoader(IterDataPipe[str]):
 
     def __iter__(self) -> Generator[str, None, None]:
         for url in self.dp:
-            resp = requests.get(url)
-            try:
-                resp.raise_for_status()
-            except requests.exceptions.HTTPError:
-                continue
+            cache_path = CACHE_DIR / Path(url).name
+            if not cache_path.exists():
+                resp = requests.get(url)
+                try:
+                    resp.raise_for_status()
+                except requests.exceptions.HTTPError:
+                    continue
 
-            text = resp.text
-            text = text.split("***", maxsplit=2)[-1]  # remove header
-            text = text.split("*** End", maxsplit=1)[0]  # remove footer
-            text = text.strip()
+                text = resp.text
+                text = text.split("***", maxsplit=2)[-1]  # remove header
+                text = text.split("*** End", maxsplit=1)[0]  # remove footer
+                text = text.strip()
+
+                with open(cache_path, "w") as f:
+                    f.write(text)
+
+            else:
+                with open(cache_path, "r") as f:
+                    text = f.read()
 
             yield text
 
