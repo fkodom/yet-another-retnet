@@ -298,14 +298,17 @@ class MultiScaleRetention(nn.Module):
             )
 
         # The q/k/v projection layers are the same as in vanilla MHA.
-        self.q_proj = nn.Linear(
-            embed_dim, embed_dim, bias=bias, device=device, dtype=dtype
+        self.q_proj = nn.Parameter(
+            torch.randn(self.num_heads, embed_dim, head_dim, device=device, dtype=dtype)
+            / embed_dim
         )
-        self.k_proj = nn.Linear(
-            embed_dim, embed_dim, bias=bias, device=device, dtype=dtype
+        self.k_proj = nn.Parameter(
+            torch.randn(self.num_heads, embed_dim, head_dim, device=device, dtype=dtype)
+            / embed_dim
         )
-        self.v_proj = nn.Linear(
-            embed_dim, embed_dim, bias=bias, device=device, dtype=dtype
+        self.v_proj = nn.Parameter(
+            torch.randn(self.num_heads, embed_dim, head_dim, device=device, dtype=dtype)
+            / embed_dim
         )
         self.group_norm = nn.GroupNorm(
             num_groups=num_heads,
@@ -337,15 +340,6 @@ class MultiScaleRetention(nn.Module):
     def _reset_parameters(self):
         # TODO: Double-check that we're following the same initialization as in
         # the paper.  This is a generic initialization for MHA linear layers.
-        nn.init.xavier_normal_(self.q_proj.weight)
-        if self.q_proj.bias is not None:
-            nn.init.constant_(self.q_proj.bias, 0)
-        nn.init.xavier_normal_(self.k_proj.weight)
-        if self.k_proj.bias is not None:
-            nn.init.constant_(self.k_proj.bias, 0)
-        nn.init.xavier_normal_(self.v_proj.weight)
-        if self.v_proj.bias is not None:
-            nn.init.constant_(self.v_proj.bias, 0)
         nn.init.xavier_normal_(self.out_proj.weight)
         if self.out_proj.bias is not None:
             nn.init.constant_(self.out_proj.bias, 0)
@@ -367,15 +361,21 @@ class MultiScaleRetention(nn.Module):
         # d - embedding dimension
         #
         # Input shape: (b, n, d)
-        q: Tensor = self.q_proj(query)
-        k: Tensor = self.k_proj(key)
-        v: Tensor = self.v_proj(value)
-
-        # Unfold 'd' dimension into 'h' separate retention heads.  Move the head
-        # dimension to position 1 (makes matrix ops *much* faster).
-        q = rearrange(q, "b n (h d) -> b h n d", h=self.num_heads)
-        k = rearrange(k, "b n (h d) -> b h n d", h=self.num_heads)
-        v = rearrange(v, "b n (h d) -> b h n d", h=self.num_heads)
+        q = einsum(
+            query,
+            self.q_proj,
+            "b sqlen embed, numheads embed headdim -> b numheads sqlen headdim",
+        )
+        k = einsum(
+            key,
+            self.k_proj,
+            "b sqlen embed, numheads embed headdim -> b numheads sqlen headdim",
+        )
+        v = einsum(
+            value,
+            self.v_proj,
+            "b sqlen embed,numheads embed headdim -> b numheads sqlen headdim",
+        )
 
         if self.relative_position:
             assert self.thetas is not None
@@ -429,14 +429,15 @@ class MultiScaleRetention(nn.Module):
         # d - embedding dimension
         #
         # input shape: (b, d)
-        q: Tensor = self.q_proj(query)
-        k: Tensor = self.k_proj(key)
-        v: Tensor = self.v_proj(value)
-
-        # Unfold 'd' dimension into 'h' separate retention heads.
-        q = rearrange(q, "b (h d) -> b h d", h=self.num_heads)
-        k = rearrange(k, "b (h d) -> b h d", h=self.num_heads)
-        v = rearrange(v, "b (h d) -> b h d", h=self.num_heads)
+        q = einsum(
+            query, self.q_proj, "b embed, numheads embed headdim -> b numheads headdim"
+        )
+        k = einsum(
+            key, self.k_proj, "b embed, numheads embed headdim -> b numheads headdim"
+        )
+        v = einsum(
+            value, self.v_proj, "b embed,numheads embed headdim -> b numheads headdim"
+        )
 
         if self.relative_position:
             assert self.thetas is not None
@@ -484,15 +485,21 @@ class MultiScaleRetention(nn.Module):
         # d - embedding dimension
         #
         # Input shape: (b, n, d)
-        q: Tensor = self.q_proj(query)
-        k: Tensor = self.k_proj(key)
-        v: Tensor = self.v_proj(value)
-
-        # Unfold 'd' dimension into 'h' separate retention heads.  Move the head
-        # dimension to position 1 (makes matrix ops *much* faster).
-        q = rearrange(q, "b n (h d) -> b h n d", h=self.num_heads)
-        k = rearrange(k, "b n (h d) -> b h n d", h=self.num_heads)
-        v = rearrange(v, "b n (h d) -> b h n d", h=self.num_heads)
+        q = einsum(
+            query,
+            self.q_proj,
+            "b sqlen embed, numheads embed headdim -> b numheads sqlen headdim",
+        )
+        k = einsum(
+            key,
+            self.k_proj,
+            "b sqlen embed, numheads embed headdim -> b numheads sqlen headdim",
+        )
+        v = einsum(
+            value,
+            self.v_proj,
+            "b sqlen embed,numheads embed headdim -> b numheads sqlen headdim",
+        )
 
         if self.relative_position:
             # global (cross-chunk) + intra-chunk relative position embedding
